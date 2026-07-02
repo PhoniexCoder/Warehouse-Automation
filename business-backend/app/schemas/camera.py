@@ -1,0 +1,28 @@
+from datetime import datetime
+import uuid
+
+from pydantic import BaseModel, Field
+
+
+class CameraCreate(BaseModel):
+    warehouse_id: uuid.UUID
+    camera_name: str = Field(..., min_length=1, max_length=255, examples=["Entry Gate Camera"])
+    stream_url: str = Field(..., examples=["rtsp://192.168.1.100:554/stream1"])
+    status: str | None = None
+
+
+class CameraUpdate(BaseModel):
+    camera_name: str | None = None
+    stream_url: str | None = None
+    status: str | None = None
+
+
+class CameraResponse(BaseModel):
+    id: uuid.UUID
+    warehouse_id: uuid.UUID
+    camera_name: str
+    stream_url: str
+    status: str
+    last_seen: datetime | None
+
+    model_config = {"from_attributes": True}

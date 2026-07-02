@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+  --color-primary: #2563eb;
+  --color-primary-light: #dbeafe;
+  --color-secondary: #64748b;
+  --color-success: #16a34a;
+  --color-success-light: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-light: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-light: #fee2e2;
+  --color-info: #0891b2;
+  --color-info-light: #cffafe;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  * { @apply border-gray-200; }
+}
+
+@utility sidebar-link {
+  @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150;
+}
+@utility sidebar-link-active {
+  @apply bg-primary/10 text-primary;
+}
+@utility sidebar-link-inactive {
+  @apply text-secondary hover:bg-gray-100 hover:text-foreground;
+}
+@utility card {
+  @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+}
+@utility input-field {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all;
+}
+@utility btn-primary {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-white text-foreground text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-[0.98] transition-all duration-150;
+}
+@utility btn-danger {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-danger text-white text-sm font-medium rounded-lg hover:bg-danger/90 active:scale-[0.98] transition-all duration-150;
+}
+@utility badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}

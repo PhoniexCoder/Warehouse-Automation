@@ -1,0 +1,29 @@
+# Core Computer Vision
+opencv-python==4.10.0.84
+numpy==1.26.4
+
+# YOLO Object Detection
+ultralytics==8.3.97
+
+# QR Code Decoding
+pyzbar==0.1.9
+
+# Object Tracking
+boxmot==10.0.78
+
+# Backend API
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Validation
+pydantic==2.10.4
+
+# ORM
+sqlalchemy==2.0.34
+
+# Testing
+pytest==8.3.4
+pytest-mock==3.14.0
+
+# Utility
+pillow==11.0.0
