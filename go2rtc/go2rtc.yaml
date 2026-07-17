@@ -2,10 +2,10 @@ log:
   level: trace
 
 api:
-  listen: ":1476"
+  listen: ":1984"
 
 rtsp:
-  listen: ":554"
+  listen: ":8554"
 
 webrtc:
   listen: ":8555"
