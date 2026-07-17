@@ -69,8 +69,6 @@ services:
     build:
       context: ./frontend
       dockerfile: ../docker/Dockerfile.frontend
-      args:
-        NEXT_PUBLIC_API_URL: "http://localhost:8001/api/v1"
     ports:
       - "3000:3000"
     environment:
