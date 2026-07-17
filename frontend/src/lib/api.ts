@@ -186,6 +186,12 @@ export const api = {
     return res.data.data
   },
 
+  // go2rtc
+  getGo2rtcStreams: async (): Promise<Record<string, string>> => {
+    const res = await client.get<ApiResponse>("/go2rtc/streams")
+    return (res.data.data as Record<string, string>) || {}
+  },
+
   // Inventory
   getInventory: async (): Promise<InventoryItem[]> => {
     const res = await client.get<ApiResponse>("/inventory")

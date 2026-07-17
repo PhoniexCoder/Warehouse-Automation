@@ -2,6 +2,7 @@ import uuid
 import logging
 import asyncio
 
+import httpx
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,3 +215,20 @@ async def list_active_cameras_internal(
         success=True,
         data=[CameraResponse.model_validate(c).model_dump(mode="json") for c in active],
     )
+
+
+GO2RTC_URL = "http://go2rtc:1984"
+
+
+@router.get("/go2rtc/streams", summary="List available go2rtc streams")
+async def list_go2rtc_streams(
+    _any: User = Depends(require_any),
+) -> ApiResponse:
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{GO2RTC_URL}/api/streams")
+            resp.raise_for_status()
+            return ApiResponse(success=True, data=resp.json())
+    except Exception as exc:
+        LOGGER.warning("Failed to reach go2rtc: %s", exc)
+        return ApiResponse(success=True, data={})
