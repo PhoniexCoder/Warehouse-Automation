@@ -78,7 +78,8 @@ services:
               count: all
               capabilities: [gpu]
     depends_on:
-      - go2rtc
+      go2rtc:
+        condition: service_started
       business:
         condition: service_healthy
 
