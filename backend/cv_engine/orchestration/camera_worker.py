@@ -142,9 +142,15 @@ class CameraWorker:
             go2rtc_url = os.getenv("GO2RTC_URL", "http://go2rtc:1984")
             channel = self.config.get("channel", 0)
             rtsp_url = f"rtsp://go2rtc:8554/ch{channel}"
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-            self._frame_source = cv2.VideoCapture(rtsp_url)
-            if not self._frame_source.isOpened():
+            from go2rtc.video_stream import VideoStream
+            self._frame_source = VideoStream(
+                rtsp_url,
+                buffer_size=30,
+                enable_watchdog=True,
+                max_reconnect_attempts=0,
+                watchdog_timeout=10.0,
+            )
+            if not self._frame_source.is_open():
                 raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url}")
             from cv_engine.services.detector import BoxDetector
             self._detector = BoxDetector(
@@ -262,6 +268,8 @@ class CameraWorker:
         try:
             if hasattr(self._frame_source, "release"):
                 self._frame_source.release()
+            elif hasattr(self._frame_source, "close"):
+                self._frame_source.close()
         except Exception:
             pass
         self._report_health("stopped")
