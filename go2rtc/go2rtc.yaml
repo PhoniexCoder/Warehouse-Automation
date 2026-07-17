@@ -12,24 +12,28 @@ webrtc:
 
 streams:
   ch0:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=0&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=0&subtype=0"
 
   ch1:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=1&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=1&subtype=0"
 
   ch2:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=2&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=2&subtype=0"
+
   ch3:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=3&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=3&subtype=0"
 
   ch4:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=4&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=4&subtype=0"
 
   ch5:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=5&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=5&subtype=0"
+
   ch6:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=6&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=6&subtype=0"
+
   ch7:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=7&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=7&subtype=0"
+
   ch8:
-    - dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=8&subtype=0
+    - "dvrip://uxdp:cw8adc@192.168.1.35:34567?channel=8&subtype=0"
