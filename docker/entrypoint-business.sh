@@ -1,21 +1,22 @@
 #!/bin/bash
 set -e
 
-# Run seed script if present
-if [ -f /app/seed.sh ]; then
-  echo "Running seed script..."
-  python3 -c "
-import urllib.request, json, sys, time
+# Start uvicorn in the background
+uvicorn app.main:app --host 0.0.0.0 --port 8001 &
+UVICORN_PID=$!
 
-# Wait for the API to be ready
-for i in range(30):
-    try:
-        urllib.request.urlopen('http://localhost:8001/health', timeout=2)
+# Wait for the server to be ready
+for i in $(seq 1 30); do
+    if python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)" 2>/dev/null; then
         break
-    except Exception:
-        time.sleep(1)
+    fi
+    sleep 1
+done
 
-# Create admin user
+# Seed admin user
+python3 -c "
+import urllib.request, json
+
 data = json.dumps({'username': 'admin', 'email': 'admin@warehouse.local', 'password': 'admin', 'warehouse_id': None}).encode()
 req = urllib.request.Request(
     'http://localhost:8001/api/v1/register',
@@ -31,8 +32,7 @@ except urllib.error.HTTPError as e:
         print('Admin user already exists.')
     else:
         print(f'Seed warning: {e.code} {body}')
-" &
-fi
+"
 
-# Start the server
-exec uvicorn app.main:app --host 0.0.0.0 --port 8001
+# Keep running and wait for uvicorn
+wait $UVICORN_PID
