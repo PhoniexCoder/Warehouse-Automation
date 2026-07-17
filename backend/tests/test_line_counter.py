@@ -73,21 +73,6 @@ def test_multiple_objects():
     assert counter.total_count == 2
 
 
-def test_reset():
-    counter = LineCounter(line_y=400)
-    counter.update([_make_tracked(1, 300, 350)])
-    counter.update([_make_tracked(1, 300, 550)])
-    assert counter.total_count == 1
-
-    counter.reset()
-    assert counter.total_count == 0
-    assert counter.crossed_ids == set()
-
-    counter.update([_make_tracked(1, 300, 350)])
-    counter.update([_make_tracked(1, 300, 550)])
-    assert counter.total_count == 1
-
-
 def test_exact_on_line():
     counter = LineCounter(line_y=400, hysteresis=0)
 
@@ -131,12 +116,3 @@ def test_properties():
     assert counter.line_y == 500
 
     assert isinstance(counter.crossed_ids, set)
-
-
-def test_is_counted():
-    counter = LineCounter(line_y=400)
-    assert counter.is_counted(1) is False
-
-    counter.update([_make_tracked(1, 300, 350)])
-    counter.update([_make_tracked(1, 300, 550)])
-    assert counter.is_counted(1) is True

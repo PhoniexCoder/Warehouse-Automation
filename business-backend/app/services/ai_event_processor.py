@@ -100,14 +100,6 @@ class AiEventProcessor:
                 details=f"Movement={movement_type.value}",
             )
 
-        return {
-            "box_id": str(box.id),
-            "tracking_id": tracking_id,
-            "status": box.status.value,
-            "counted": counted,
-            "movement_type": movement_type.value,
-        }
-
     async def process_invalid_qr(
         self,
         tracking_id: int,

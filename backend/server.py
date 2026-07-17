@@ -1,14 +1,21 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
+import asyncio
 import logging
 import sys
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from api import v1_router
 from api.exceptions import general_exception_handler, validation_exception_handler
 from cv_engine.database import create_tables
 from cv_engine.orchestration.camera_manager import CameraManager
+from cv_engine.orchestration.frame_store import FrameStore
 from fastapi.exceptions import RequestValidationError
 
 logging.basicConfig(
@@ -20,6 +27,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger("server")
 
 camera_manager = CameraManager()
+frame_store = FrameStore()
 
 app = FastAPI(title="Warehouse AI API", version="1.0.0")
 
@@ -37,38 +45,82 @@ app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(v1_router, prefix="/api/v1")
 
 
+import requests
+import threading
+import time
+
+def sync_cameras_loop():
+    # Wait for both servers to be fully booted
+    time.sleep(3)
+    LOGGER.info("VMS Sync loop started")
+    while True:
+        try:
+            url = "http://localhost:8001/api/v1/cameras/internal/active"
+            res = requests.get(url, timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("success"):
+                    active_cameras = data["data"]
+                    active_ids = set()
+                    
+                    for cam in active_cameras:
+                        cam_id = cam["id"] # Database UUID!
+                        active_ids.add(cam_id)
+                        
+                        if cam_id not in camera_manager._configs:
+                            stream_url = cam["stream_url"]
+                            if stream_url.startswith("dvrip://"):
+                                from urllib.parse import urlparse
+                                parsed = urlparse(stream_url)
+                                config = {
+                                    "source_type": "dvrip",
+                                    "host": parsed.hostname,
+                                    "port": parsed.port or 34567,
+                                    "channel": int(parsed.path.lstrip("/")) if parsed.path else 0,
+                                    "username": parsed.username or "uxdp",
+                                    "password": parsed.password or "cw8adc",
+                                    "line_y": 500,
+                                    "display_name": cam["camera_name"],
+                                    "target_fps": 5,
+                                    "frame_skip": 2,
+                                    "model_path": r"A:\Warehoouse  Automation\models\box_model.pt",
+                                }
+                            else:
+                                config = {
+                                    "source_type": "rtsp",
+                                    "source": stream_url,
+                                    "line_y": 500,
+                                    "display_name": cam["camera_name"],
+                                    "target_fps": 5,
+                                    "frame_skip": 2,
+                                    "model_path": r"A:\Warehoouse  Automation\models\box_model.pt",
+                                }
+                            LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
+                                         cam["camera_name"], cam_id, config["source_type"])
+                            camera_manager.start_camera(cam_id, config)
+                    
+                    # Stop workers that are no longer active
+                    configured_ids = list(camera_manager._configs.keys())
+                    for c_id in configured_ids:
+                        if c_id not in active_ids:
+                            LOGGER.info("VMS: Stopping camera worker for %s", c_id)
+                            camera_manager.stop_camera(c_id)
+        except Exception:
+            pass
+        time.sleep(10)
+
+
 @app.on_event("startup")
 def _startup() -> None:
     create_tables()
     LOGGER.info("Database tables ensured")
 
-    camera_manager.add_camera("cam_1", {
-        "source_type": "simulated",
-        "sim_scene": "entry",
-        "line_y": 620,
-        "display_name": "Entry Gate",
-    })
-    camera_manager.add_camera("cam_2", {
-        "source_type": "simulated",
-        "sim_scene": "conveyor",
-        "line_y": 400,
-        "display_name": "Conveyor Belt",
-    })
-    camera_manager.add_camera("cam_3", {
-        "source_type": "simulated",
-        "sim_scene": "storage",
-        "line_y": 500,
-        "display_name": "Storage Area",
-    })
-    camera_manager.add_camera("cam_4", {
-        "source_type": "simulated",
-        "sim_scene": "exit",
-        "line_y": 600,
-        "display_name": "Exit Dock",
-    })
-
     camera_manager.start_all()
-    LOGGER.info("CameraManager started with 4 simulated cameras")
+    LOGGER.info("CameraManager started")
+
+    # Start VMS auto-sync thread
+    sync_thread = threading.Thread(target=sync_cameras_loop, daemon=True, name="vms-sync")
+    sync_thread.start()
 
 
 @app.on_event("shutdown")
@@ -86,8 +138,44 @@ def get_cameras() -> dict:
     }
 
 
+@app.get("/api/v1/stream/{camera_id}")
+async def stream_camera(camera_id: str):
+    cameras = camera_manager.get_status().get("cameras", {})
+    if camera_id not in cameras:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+
+    async def _generate():
+        last_mtime = 0.0
+        try:
+            while True:
+                mtime = frame_store.latest_mtime(camera_id)
+                if mtime > last_mtime:
+                    data = frame_store.latest_bytes(camera_id)
+                    if data:
+                        last_mtime = mtime
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n"
+                            b"Content-Length: " + str(len(data)).encode() + b"\r\n"
+                            b"\r\n" + data + b"\r\n"
+                        )
+                await asyncio.sleep(0.033)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        _generate(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 def main() -> None:
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
 
 
 if __name__ == "__main__":

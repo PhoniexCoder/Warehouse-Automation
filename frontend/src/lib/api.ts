@@ -97,14 +97,8 @@ client.interceptors.response.use(
 )
 
 export const api = {
-  setTokens,
   clearTokens,
   getToken,
-  getUser: (): User | null => {
-    if (typeof window === "undefined") return null
-    const raw = localStorage.getItem("user")
-    return raw ? JSON.parse(raw) : null
-  },
   setUser: (user: User) => localStorage.setItem("user", JSON.stringify(user)),
 
   login: async (username: string, password: string): Promise<TokenData> => {
@@ -116,11 +110,6 @@ export const api = {
 
   getMe: async (): Promise<User> => {
     const res = await client.get<ApiResponse>("/me")
-    return res.data.data as User
-  },
-
-  register: async (payload: { username: string; email: string; password: string; role: string }) => {
-    const res = await client.post<ApiResponse>("/register", payload)
     return res.data.data as User
   },
 
@@ -166,6 +155,35 @@ export const api = {
   },
   deleteCamera: async (id: string): Promise<void> => {
     await client.delete(`/cameras/${id}`)
+  },
+
+  // VMS Discovery
+  discoverVms: async (): Promise<any[]> => {
+    const res = await client.get<ApiResponse>("/vms/discover")
+    return (res.data.data as any[]) || []
+  },
+  scanVmsChannels: async (payload: { ip: string; username: string; password: string }): Promise<any[]> => {
+    const res = await client.post<ApiResponse>("/vms/scan-channels", payload)
+    return (res.data.data as any[]) || []
+  },
+  importVmsCameras: async (payload: {
+    warehouse_id: string
+    ip: string
+    username: string
+    password: string
+    channels: number[]
+  }): Promise<any> => {
+    const res = await client.post<ApiResponse>("/vms/import", payload)
+    return res.data.data
+  },
+  dvripConnect: async (payload: {
+    warehouse_id: string
+    host: string
+    username: string
+    password: string
+  }): Promise<any> => {
+    const res = await client.post<ApiResponse>("/vms/dvrip-connect", payload)
+    return res.data.data
   },
 
   // Inventory

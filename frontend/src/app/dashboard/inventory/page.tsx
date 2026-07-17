@@ -117,15 +117,15 @@ export default function InventoryPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground">Inventory</h2>
-          <p className="text-sm text-secondary mt-1">Track products and movement history</p>
+        <div className="text-left">
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">CRAX Product Batches</h2>
+          <p className="text-sm text-slate-500 mt-1">Track packaging flavors and conveyor scan logs</p>
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} className="rounded-full shadow-md shadow-blue-500/10">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
           </svg>
-          Add Product
+          Register Flavor Batch
         </Button>
       </div>
 
@@ -135,11 +135,11 @@ export default function InventoryPage() {
             key={t}
             onClick={() => setTab(t)}
             className={clsx(
-              "px-4 py-2 text-sm font-medium rounded-md transition-all",
-              tab === t ? "bg-white text-foreground shadow-sm" : "text-secondary hover:text-foreground",
+              "px-4 py-2 text-sm font-semibold rounded-md transition-all whitespace-nowrap",
+              tab === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
             )}
           >
-            {t === "products" ? "Products" : "Movement History"}
+            {t === "products" ? "Flavor Catalog" : "Carton Scan Logs"}
           </button>
         ))}
       </div>
@@ -148,44 +148,44 @@ export default function InventoryPage() {
         <>
           {items.length === 0 ? (
             <Card>
-              <div className="text-center py-12 text-secondary">
-                <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="text-center py-12 text-slate-500">
+                <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
-                <p className="font-medium">No inventory items</p>
-                <p className="text-sm mt-1">Add products to start tracking inventory</p>
+                <p className="font-semibold">No flavor batches registered</p>
+                <p className="text-sm mt-1">Add a product flavor to begin conveyor scanning tracking</p>
               </div>
             </Card>
           ) : (
             <div className="card overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto select-text">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Product Code</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Name</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-secondary uppercase">Quantity</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Warehouse</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-secondary uppercase">Updated</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-secondary uppercase">Actions</th>
+                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Batch Code</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Flavor / Product Name</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Cases Processed</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Warehouse Line</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Last Scan</th>
+                      <th className="px-4 py-3 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                     {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3">
-                          <code className="px-2 py-0.5 bg-gray-100 rounded text-xs font-mono font-medium">
+                          <code className="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono font-bold text-slate-900">
                             {item.product_code}
                           </code>
                         </td>
-                        <td className="px-4 py-3 font-medium text-foreground">{item.product_name}</td>
+                        <td className="px-4 py-3 font-bold text-slate-900">{item.product_name}</td>
                         <td className="px-4 py-3 text-right">
                           <Badge variant={item.quantity > 10 ? "success" : item.quantity > 0 ? "warning" : "danger"}>
-                            {item.quantity}
+                            {item.quantity} cases
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-secondary">{getWarehouseName(item.warehouse_id)}</td>
-                        <td className="px-4 py-3 text-right text-secondary text-xs">
+                        <td className="px-4 py-3 text-slate-500">{getWarehouseName(item.warehouse_id)}</td>
+                        <td className="px-4 py-3 text-right text-slate-500 text-xs">
                           {format(new Date(item.updated_at), "MMM d, HH:mm")}
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -199,8 +199,8 @@ export default function InventoryPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="px-4 py-3 bg-gray-50/50 border-t border-gray-100 text-xs text-secondary">
-                {items.length} product{items.length !== 1 ? "s" : ""} total
+              <div className="px-4 py-3 bg-slate-50/30 border-t border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wide">
+                {items.length} flavor{items.length !== 1 ? "s" : ""} cataloged
               </div>
             </div>
           )}
@@ -211,36 +211,36 @@ export default function InventoryPage() {
         <>
           {movements.length === 0 ? (
             <Card>
-              <div className="text-center py-12 text-secondary">
-                <p className="font-medium">No movement records</p>
-                <p className="text-sm mt-1">Movement history will appear here when boxes are scanned</p>
+              <div className="text-center py-12 text-slate-500">
+                <p className="font-semibold">No carton scans logged</p>
+                <p className="text-sm mt-1">Conveyor logs will populate here once live cameras detect carton boxes</p>
               </div>
             </Card>
           ) : (
             <div className="card overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto select-text">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Timestamp</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Box ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Camera</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-secondary uppercase">Type</th>
+                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Timestamp</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Carton ID</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Conveyor Camera</th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Scan Event</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                     {movements.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-3 text-secondary text-xs whitespace-nowrap">
+                      <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                           {format(new Date(log.timestamp), "MMM d, yyyy HH:mm:ss")}
                         </td>
                         <td className="px-4 py-3">
-                          <code className="text-xs font-mono">{log.box_id.slice(0, 8)}...</code>
+                          <code className="text-xs font-mono text-slate-900 font-bold">#CRAX-{log.box_id.slice(0, 8).toUpperCase()}</code>
                         </td>
-                        <td className="px-4 py-3 text-secondary">{log.camera_id}</td>
+                        <td className="px-4 py-3 text-slate-500">{log.camera_id}</td>
                         <td className="px-4 py-3">
                           <Badge variant={log.movement_type === "ENTRY" ? "success" : "warning"}>
-                            {log.movement_type}
+                            {log.movement_type === "ENTRY" ? "DISPATCH" : "INGRESS"}
                           </Badge>
                         </td>
                       </tr>
@@ -248,40 +248,40 @@ export default function InventoryPage() {
                   </tbody>
                 </table>
               </div>
-              <div className="px-4 py-3 bg-gray-50/50 border-t border-gray-100 text-xs text-secondary">
-                {movements.length} record{movements.length !== 1 ? "s" : ""}
+              <div className="px-4 py-3 bg-slate-50/30 border-t border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wide">
+                {movements.length} carton scan{movements.length !== 1 ? "s" : ""} logged
               </div>
             </div>
           )}
         </>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Product" : "Add Product"}>
-        <form onSubmit={(e) => { e.preventDefault(); handleSave() }} className="space-y-4">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Modify Flavor Batch" : "Register Flavor Batch"}>
+        <form onSubmit={(e) => { e.preventDefault(); handleSave() }} className="space-y-4 text-left">
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Product Code</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Batch Code</label>
             <input
               value={productCode}
               onChange={(e) => setProductCode(e.target.value)}
-              className="input-field font-mono"
-              placeholder="e.g. BOX-1024"
+              className="input-field font-mono font-bold"
+              placeholder="e.g. CRAX-MASALA-24G"
               required
               disabled={!!editing}
               autoFocus
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Product Name</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Flavor / Product Name</label>
             <input
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
               className="input-field"
-              placeholder="e.g. Steel Brackets"
+              placeholder="e.g. Masala Rings"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Quantity</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Cases Processed</label>
             <input
               type="number"
               min={0}
@@ -292,14 +292,14 @@ export default function InventoryPage() {
           </div>
           {!editing && (
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Warehouse</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Warehouse Location</label>
               <select
                 value={whId}
                 onChange={(e) => setWhId(e.target.value)}
-                className="input-field"
+                className="input-field text-slate-800"
                 required
               >
-                <option value="">Select warehouse</option>
+                <option value="" className="text-slate-400">Select plant line</option>
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
@@ -307,17 +307,17 @@ export default function InventoryPage() {
             </div>
           )}
           <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={saving}>{editing ? "Save Changes" : "Add Product"}</Button>
+            <Button variant="secondary" onClick={() => setModalOpen(false)} className="rounded-full">Cancel</Button>
+            <Button type="submit" loading={saving} className="rounded-full">{editing ? "Save Changes" : "Register Batch"}</Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Product" size="sm">
-        <p className="text-sm text-secondary">Are you sure you want to delete this product from inventory?</p>
+      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Flavor Batch" size="sm">
+        <p className="text-sm text-slate-500 text-left">Are you sure you want to remove this flavor batch from the tracking register?</p>
         <div className="flex justify-end gap-3 mt-6">
-          <Button variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => confirmDelete && handleDelete(confirmDelete)}>Delete</Button>
+          <Button variant="secondary" onClick={() => setConfirmDelete(null)} className="rounded-full">Cancel</Button>
+          <Button variant="danger" onClick={() => confirmDelete && handleDelete(confirmDelete)} className="rounded-full">Delete</Button>
         </div>
       </Modal>
     </div>

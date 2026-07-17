@@ -1,11 +1,10 @@
 import uuid
-from datetime import datetime, timezone
 import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import NotFoundError
 from app.models.camera import Camera, CameraStatus
 
 LOGGER = logging.getLogger(__name__)
@@ -48,12 +47,6 @@ class CameraService:
                 setattr(camera, key, value)
         await self._session.flush()
         LOGGER.info("Camera updated: %s", camera_uuid)
-        return camera
-
-    async def update_last_seen(self, camera_uuid: uuid.UUID) -> Camera:
-        camera = await self.get(camera_uuid)
-        camera.last_seen = datetime.now(timezone.utc)
-        await self._session.flush()
         return camera
 
     async def delete(self, camera_uuid: uuid.UUID) -> None:

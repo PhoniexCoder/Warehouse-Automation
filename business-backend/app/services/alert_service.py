@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.alert import Alert, AlertType, AlertSeverity
@@ -39,8 +39,3 @@ class AlertService:
         stmt = stmt.limit(limit).offset(offset)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-
-    async def count_all(self) -> int:
-        stmt = select(func.count(Alert.id))
-        result = await self._session.execute(stmt)
-        return result.scalar() or 0

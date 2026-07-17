@@ -53,7 +53,3 @@ class BoxProcessor:
         if qr_result["success"]:
             return None
         return "INVALID_QR"
-
-    def process_box(self, frame: np.ndarray, box_dict: dict) -> dict:
-        self._process_single(frame, box_dict, frame.shape[0], frame.shape[1])
-        return box_dict

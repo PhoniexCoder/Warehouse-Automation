@@ -1,6 +1,6 @@
 import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import cv2
@@ -135,9 +135,7 @@ class SimulatedCameraSource:
             border = tuple(max(0, int(c * 0.6)) for c in box.color)
             cv2.rectangle(frame, (x1, y1), (x2, y2), border, 2)
 
-            if box.has_qr and box.qr_image is not None:
-                self._overlay_qr(frame, box, x1, y1, x2, y2)
-
+            # QR codes and conveyor belt indicators removed for clean stream view
             detections.append({
                 "bbox": [x1, y1, x2, y2],
                 "confidence": round(random.uniform(0.85, 0.99), 4),
@@ -163,22 +161,7 @@ class SimulatedCameraSource:
         for y in range(0, self.height, 60):
             cv2.line(frame, (0, y), (self.width, y), dim, 1)
 
-        if self.scene == "conveyor":
-            for x in range(0, self.width, 80):
-                cv2.circle(frame, (x, self.height // 2), 18, (40, 45, 50), -1)
-                cv2.circle(frame, (x, self.height // 2), 14, (50, 55, 60), -1)
-
-        elif self.scene == "storage":
-            cv2.rectangle(frame, (0, 160), (self.width, 180), (55, 50, 45), -1)
-            cv2.rectangle(frame, (0, 420), (self.width, 440), (55, 50, 45), -1)
-
-        elif self.scene == "exit":
-            door_w = 350
-            dx = (self.width - door_w) // 2
-            cv2.rectangle(frame, (dx, 0), (dx + door_w, 50), (60, 65, 55), -1)
-            cv2.line(frame, (dx, 50), (dx, self.height), (50, 55, 45), 2)
-            cv2.line(frame, (dx + door_w, 50), (dx + door_w, self.height), (50, 55, 45), 2)
-
+        # Removed simulated conveyor wheels and storage lines for a clean scene background
         return frame
 
     def _spawn_box(self) -> None:

@@ -10,7 +10,7 @@ from cv_engine.orchestration.event_consumer import EventConsumer
 LOGGER = logging.getLogger(__name__)
 
 _MONITOR_INTERVAL = 2.0
-_HEALTH_STALE_SECONDS = 10.0
+_HEALTH_STALE_SECONDS = 45.0
 _EVENT_QUEUE_MAXSIZE = 10000
 
 
@@ -45,11 +45,15 @@ class CameraManager:
             worker.join(timeout=2)
             LOGGER.info("Camera %s removed and terminated", camera_id)
 
-    def start_all(self) -> None:
-        if not self._configs:
-            LOGGER.warning("No cameras configured — nothing to start")
-            return
+    def start_camera(self, camera_id: str, config: dict[str, Any]) -> None:
+        self.add_camera(camera_id, config)
+        if self._running:
+            self._start_worker(camera_id, config)
 
+    def stop_camera(self, camera_id: str) -> None:
+        self.remove_camera(camera_id)
+
+    def start_all(self) -> None:
         LOGGER.info("Starting CameraManager with %d cameras", len(self._configs))
 
         self._manager = multiprocessing.Manager()
@@ -76,6 +80,13 @@ class CameraManager:
         LOGGER.info("CameraManager started")
 
     def _start_worker(self, camera_id: str, config: dict[str, Any]) -> None:
+        if self._health is not None:
+            self._health[camera_id] = {
+                "status": "starting",
+                "timestamp": time.time(),
+                "frames": 0,
+                "counted": 0,
+            }
         worker = multiprocessing.Process(
             target=self._worker_main,
             args=(camera_id, config, self._event_queue, self._health, self._stop_event),
@@ -94,6 +105,8 @@ class CameraManager:
         health: Any,
         stop_event: Any,
     ) -> None:
+        import os
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         worker = CameraWorker(camera_id, config, event_queue, health, stop_event)
         worker.run()
 

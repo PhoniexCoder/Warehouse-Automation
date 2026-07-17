@@ -6,6 +6,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from cv_engine.orchestration.frame_store import FrameStore
 from cv_engine.services.box_processor import BoxProcessor
 from cv_engine.services.duplicate_guard import DuplicateGuard
 from cv_engine.services.line_counter import LineCounter
@@ -17,12 +18,9 @@ LOGGER = logging.getLogger(__name__)
 _RECONNECT_BASE_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 30.0
 _RECONNECT_MAX_ATTEMPTS = 60
-_TARGET_FPS = 30.0
-_FRAME_INTERVAL = 1.0 / _TARGET_FPS
+_TARGET_FPS = 5.0
 
 _EVENT_TYPE_DETECTION = "detection"
-_EVENT_TYPE_INVALID_QR = "invalid_qr"
-_EVENT_TYPE_DUPLICATE = "duplicate"
 
 
 class CameraWorker:
@@ -47,6 +45,7 @@ class CameraWorker:
         self._target_fps = config.get("target_fps", _TARGET_FPS)
         self._frame_interval = 1.0 / max(self._target_fps, 1.0)
         self._consecutive_errors = 0
+        self._frame_store = FrameStore()
 
         self._source: Optional[SimulatedCameraSource] = None
         self._frame_source: Any = None
@@ -54,6 +53,8 @@ class CameraWorker:
         self._tracker: Optional[ObjectTracker] = None
         self._counter: Optional[LineCounter] = None
         self._duplicate_guard: Optional[DuplicateGuard] = None
+        self._seen_tracks = set()
+        self._dvrip_detector: Any = None
 
     def run(self) -> None:
         LOGGER.info("[%s] Worker starting (source=%s, scene=%s, line_y=%d)",
@@ -103,6 +104,10 @@ class CameraWorker:
                     frame_count += 1
 
                     events = self._process_frame(frame, pre_dets)
+                    try:
+                        self._publish_frame(frame)
+                    except Exception:
+                        LOGGER.exception("[%s] Frame publish failed", self.camera_id)
                     for event in events:
                         self._event_queue.put(event)
 
@@ -132,6 +137,22 @@ class CameraWorker:
                 camera_id=self.camera_id,
                 scene=self._scene,
             )
+        elif self._source_type == "dvrip":
+            from dvrip_live_pipeline.dvrip_adapter import DVRIPCapture
+            self._frame_source = DVRIPCapture(
+                host=self.config.get("host", "192.168.1.35"),
+                username=self.config.get("username", "uxdp"),
+                password=self.config.get("password", "cw8adc"),
+                channel=self.config.get("channel", 0),
+                port=self.config.get("port", 34567),
+            )
+            from cv_engine.services.detector import BoxDetector
+            self._dvrip_detector = BoxDetector(
+                model_path=self.config.get("model_path"),
+                conf_threshold=self.config.get("conf", 0.5),
+                device=self.config.get("device", "cpu"),
+                input_size=self.config.get("input_size", 640),
+            )
         else:
             from cv_engine.services.inference_engine import InferenceEngine
             self._frame_source = InferenceEngine(
@@ -153,17 +174,61 @@ class CameraWorker:
         self._counter = LineCounter(line_y=self._line_y)
         self._duplicate_guard = DuplicateGuard()
 
+        # Spawn FFmpeg RTMP streaming process to MediaMTX
+        import subprocess
+        if self._source_type == "simulated":
+            width = self._frame_source.width
+            height = self._frame_source.height
+        elif self._source_type == "dvrip":
+            width = int(self._frame_source.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(self._frame_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        else:
+            width = int(self._frame_source._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(self._frame_source._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        rtmp_url = f"rtmp://localhost:1935/live/{self.camera_id}"
+        ffmpeg_cmd = [
+            'ffmpeg',
+            '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-pix_fmt', 'bgr24',
+            '-s', f'{width}x{height}',
+            '-r', f'{self._target_fps}',
+            '-i', '-',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-f', 'flv',
+            rtmp_url
+        ]
+        self._ffmpeg_process = subprocess.Popen(
+            ffmpeg_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
     def _read_frame(self):
         if self._source_type == "simulated":
             return self._frame_source.read()
-        frame = self._frame_source.read_frame()
-        if frame is None:
-            return False, None, None
-        return True, frame, None
+        elif self._source_type == "dvrip":
+            ret, frame = self._frame_source.read()
+            if not ret or frame is None:
+                return False, None, None
+            return True, frame, None
+        else:
+            frame = self._frame_source.read_frame()
+            if frame is None:
+                return False, None, None
+            return True, frame, None
 
     def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> list[dict]:
         if pre_dets is not None:
             detections = pre_dets
+        elif self._dvrip_detector is not None:
+            detections = self._dvrip_detector.detect(frame)
         else:
             detections, _ = self._frame_source.infer(frame)
 
@@ -177,53 +242,44 @@ class CameraWorker:
         if not tracked:
             return []
 
-        self._counter.update(tracked)
-
         ts = datetime.now(timezone.utc).isoformat()
         events: list[dict] = []
 
         for obj in tracked:
-            if not obj.get("counted"):
-                continue
-
-            tid = obj["track_id"]
+            tid = obj.get("track_id")
             if tid is None:
                 continue
 
-            qr_data = obj.get("qr_data")
-            has_qr = obj.get("has_qr", False)
-            x1, y1, x2, y2 = obj["bbox"]
+            if tid not in self._seen_tracks:
+                self._seen_tracks.add(tid)
+                if self._counter:
+                    self._counter.total_count += 1
 
-            base = {
-                "camera_id": self.camera_id,
-                "tracking_id": tid,
-                "timestamp": ts,
-                "box": {
-                    "x": x1,
-                    "y": y1,
-                    "width": x2 - x1,
-                    "height": y2 - y1,
-                },
-            }
-
-            if not self._duplicate_guard.is_new(tid, qr_data):
-                base["type"] = _EVENT_TYPE_DUPLICATE
-                base["qr_data"] = qr_data
+                x1, y1, x2, y2 = obj["bbox"]
+                base = {
+                    "camera_id": self.camera_id,
+                    "tracking_id": tid,
+                    "timestamp": ts,
+                    "type": _EVENT_TYPE_DETECTION,
+                    "qr_data": f"CRAX-BOX-{tid}",
+                    "box": {
+                        "x": x1,
+                        "y": y1,
+                        "width": x2 - x1,
+                        "height": y2 - y1,
+                    },
+                }
                 events.append(base)
-                continue
-
-            self._duplicate_guard.mark_counted(tid, qr_data)
-
-            if has_qr and qr_data:
-                base["type"] = _EVENT_TYPE_DETECTION
-                base["qr_data"] = qr_data
-            else:
-                base["type"] = _EVENT_TYPE_INVALID_QR
-                base["error_type"] = obj.get("qr_status", "NO_QR")
-
-            events.append(base)
 
         return events
+
+    def _publish_frame(self, frame: np.ndarray) -> None:
+        self._frame_store.publish(self.camera_id, frame)
+        if hasattr(self, '_ffmpeg_process') and self._ffmpeg_process and self._ffmpeg_process.stdin:
+            try:
+                self._ffmpeg_process.stdin.write(frame.tobytes())
+            except Exception:
+                pass
 
     def _report_health(self, status: str, extras: Optional[dict] = None) -> None:
         entry = {
@@ -244,6 +300,14 @@ class CameraWorker:
 
     def _cleanup(self) -> None:
         LOGGER.info("[%s] Worker cleaning up", self.camera_id)
+        if hasattr(self, '_ffmpeg_process') and self._ffmpeg_process:
+            try:
+                if self._ffmpeg_process.stdin:
+                    self._ffmpeg_process.stdin.close()
+                self._ffmpeg_process.terminate()
+                self._ffmpeg_process.wait(timeout=2)
+            except Exception:
+                pass
         try:
             if hasattr(self._frame_source, "release"):
                 self._frame_source.release()

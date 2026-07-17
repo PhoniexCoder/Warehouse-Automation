@@ -3,6 +3,8 @@ import queue
 import threading
 from typing import Any
 
+import requests
+
 from cv_engine.database import save_detection, save_duplicate_event, save_invalid_qr
 
 LOGGER = logging.getLogger(__name__)
@@ -12,6 +14,8 @@ _EVENT_TYPE_INVALID_QR = "invalid_qr"
 _EVENT_TYPE_DUPLICATE = "duplicate"
 
 _QUEUE_GET_TIMEOUT = 1.0
+_BUSINESS_BACKEND_URL = "http://localhost:8001/api/v1"
+_FORWARD_TIMEOUT = 3.0
 
 
 class EventConsumer(threading.Thread):
@@ -55,8 +59,10 @@ class EventConsumer(threading.Thread):
 
         if event_type == _EVENT_TYPE_DETECTION:
             self._save_detection(event, camera_id, tracking_id, box)
+            self._forward_detection(event, camera_id, tracking_id)
         elif event_type == _EVENT_TYPE_INVALID_QR:
             self._save_invalid_qr(event, camera_id, tracking_id, box)
+            self._forward_invalid_qr(event, camera_id, tracking_id)
         elif event_type == _EVENT_TYPE_DUPLICATE:
             self._save_duplicate(event, camera_id, tracking_id, box)
         else:
@@ -81,6 +87,26 @@ class EventConsumer(threading.Thread):
         except Exception:
             LOGGER.exception("Failed to save detection event")
 
+    def _forward_detection(self, event: dict, camera_id: str, tracking_id: int) -> None:
+        try:
+            payload = {
+                "tracking_id": tracking_id,
+                "camera_id": camera_id,
+                "counted": True,
+                "qr_data": event.get("qr_data"),
+                "movement_type": "ENTRY",
+                "timestamp": event.get("timestamp"),
+            }
+            resp = requests.post(
+                f"{_BUSINESS_BACKEND_URL}/events/detection",
+                json=payload,
+                timeout=_FORWARD_TIMEOUT,
+            )
+            if resp.status_code >= 400:
+                LOGGER.warning("Business backend rejected detection: %s %s", resp.status_code, resp.text[:200])
+        except requests.RequestException as e:
+            LOGGER.warning("Failed to forward detection to business backend: %s", e)
+
     def _save_invalid_qr(self, event: dict, camera_id: str, tracking_id: int, box: dict) -> None:
         try:
             save_invalid_qr(
@@ -94,6 +120,23 @@ class EventConsumer(threading.Thread):
             )
         except Exception:
             LOGGER.exception("Failed to save invalid QR event")
+
+    def _forward_invalid_qr(self, event: dict, camera_id: str, tracking_id: int) -> None:
+        try:
+            payload = {
+                "tracking_id": tracking_id,
+                "camera_id": camera_id,
+                "error_type": event.get("error_type", "NO_QR"),
+            }
+            resp = requests.post(
+                f"{_BUSINESS_BACKEND_URL}/events/invalid-qr",
+                json=payload,
+                timeout=_FORWARD_TIMEOUT,
+            )
+            if resp.status_code >= 400:
+                LOGGER.warning("Business backend rejected invalid-qr: %s %s", resp.status_code, resp.text[:200])
+        except requests.RequestException as e:
+            LOGGER.warning("Failed to forward invalid-qr to business backend: %s", e)
 
     def _save_duplicate(self, event: dict, camera_id: str, tracking_id: int, box: dict) -> None:
         try:

@@ -70,28 +70,14 @@ class BoxDetector:
 
         return detections
 
-    @staticmethod
-    def validate_frame(frame: np.ndarray) -> bool:
-        return frame is not None and frame.size > 0 and len(frame.shape) == 3
-
-    @property
-    def model_info(self) -> dict:
-        return {
-            "model_path": self._model_path,
-            "names": self._model.names,
-            "task": self._model.task,
-            "device": self._device,
-            "conf_threshold": self._conf,
-            "iou_threshold": self._iou,
-            "input_size": self._input_size,
-        }
-
 
 def create_video_capture(source: str) -> cv2.VideoCapture:
     if source.isdigit():
         return cv2.VideoCapture(int(source))
     rtsp_prefixes = ("rtsp://", "rtmp://", "http://", "https://")
     if source.lower().startswith(rtsp_prefixes):
+        import os
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         return cv2.VideoCapture(source)
     path = Path(source)
     return cv2.VideoCapture(str(path))

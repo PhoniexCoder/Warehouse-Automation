@@ -1,7 +1,5 @@
 import logging
 import time
-from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -23,7 +21,7 @@ class InferenceEngine:
         frame_skip: int | None = None,
     ) -> None:
         self._source = source
-        self._cap: Optional[cv2.VideoCapture] = None
+        self._cap: cv2.VideoCapture | None = None
 
         self.optimizer = PerformanceOptimizer(
             input_size=input_size,
@@ -57,7 +55,7 @@ class InferenceEngine:
             return None
         return frame
 
-    def infer(self, frame: np.ndarray) -> tuple[list[dict], Optional[np.ndarray]]:
+    def infer(self, frame: np.ndarray) -> tuple[list[dict], np.ndarray | None]:
         if not self.optimizer.should_process():
             return None, None
 
@@ -96,14 +94,3 @@ class InferenceEngine:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.release()
-
-    def get_source_properties(self) -> dict:
-        if not self.is_open:
-            return {"source": self._source, "width": 0, "height": 0, "fps": 0, "total_frames": 0}
-        return {
-            "source": self._source,
-            "width": int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-            "height": int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-            "fps": round(self._cap.get(cv2.CAP_PROP_FPS), 2),
-            "total_frames": int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-        }

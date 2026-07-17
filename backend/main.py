@@ -1,7 +1,10 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -43,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Warehouse AI — CV Pipeline")
     parser.add_argument("--source", type=str, default="0",
                         help="Video source: 0 (webcam), path/to/file.mp4, rtsp://...")
-    parser.add_argument("--model", type=str, default="models/best.pt",
+    parser.add_argument("--model", type=str, default="models/box_model.pt",
                         help="Path to trained YOLO model weights")
     parser.add_argument("--conf", type=float, default=0.5,
                         help="YOLO confidence threshold")

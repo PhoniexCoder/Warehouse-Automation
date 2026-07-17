@@ -112,21 +112,6 @@ class ObjectTracker:
             self._tracker = _DeepSort()
         LOGGER.info("Tracker reinitialised")
 
-    @property
-    def method(self) -> str:
-        return self._method
-
-    @property
-    def n_updates(self) -> int:
-        return self._n_updates
-
-    @property
-    def total_tracks_created(self) -> int:
-        return self._total_tracks_created
-
-    def active_track_ids(self) -> set[int]:
-        return set(self._track_metadata.keys())
-
     # ------------------------------------------------------------------
     # Backend-specific update methods
     # ------------------------------------------------------------------
@@ -168,10 +153,23 @@ class ObjectTracker:
         deepsort_dets: list[list] = []
         for det in detections:
             x1, y1, x2, y2 = det["bbox"]
-            w = x2 - x1
-            h = y2 - y1
+            
+            # Clip bounding boxes to frame boundaries to prevent negative slicing crashes
+            fh, fw = frame.shape[:2]
+            x1_clipped = max(0, min(int(x1), fw - 1))
+            y1_clipped = max(0, min(int(y1), fh - 1))
+            x2_clipped = max(0, min(int(x2), fw))
+            y2_clipped = max(0, min(int(y2), fh))
+            
+            w = x2_clipped - x1_clipped
+            h = y2_clipped - y1_clipped
+            
+            # Skip invalid/empty boxes
+            if w <= 0 or h <= 0:
+                continue
+                
             conf = det.get("confidence", 0.5)
-            deepsort_dets.append(([x1, y1, w, h], conf, 0))
+            deepsort_dets.append(([x1_clipped, y1_clipped, w, h], conf, 0))
 
         tracks = self._tracker.update_tracks(deepsort_dets, frame=frame)
 

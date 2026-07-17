@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 import logging
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -51,19 +51,3 @@ class CountLogService:
         stmt = stmt.limit(limit).offset(offset)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-
-    async def count_by_type(self) -> dict[str, int]:
-        stmt = select(
-            CountLog.movement_type,
-            func.count(CountLog.id),
-        ).group_by(CountLog.movement_type)
-        result = await self._session.execute(stmt)
-        counts: dict[str, int] = {}
-        for mtype, count in result.all():
-            counts[mtype.value if hasattr(mtype, "value") else str(mtype)] = count
-        return counts
-
-    async def count_all(self) -> int:
-        stmt = select(func.count(CountLog.id))
-        result = await self._session.execute(stmt)
-        return result.scalar() or 0

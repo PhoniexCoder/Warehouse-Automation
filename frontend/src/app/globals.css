@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #f8fafc;
+  --color-background: #f5f7fa;
   --color-foreground: #0f172a;
   --color-primary: #2563eb;
-  --color-primary-light: #dbeafe;
+  --color-primary-light: #eff6ff;
   --color-secondary: #64748b;
-  --color-success: #16a34a;
-  --color-success-light: #dcfce7;
-  --color-warning: #d97706;
-  --color-warning-light: #fef3c7;
-  --color-danger: #dc2626;
-  --color-danger-light: #fee2e2;
-  --color-info: #0891b2;
-  --color-info-light: #cffafe;
+  --color-success: #10b981;
+  --color-success-light: #ecfdf5;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fffbeb;
+  --color-danger: #ef4444;
+  --color-danger-light: #fef2f2;
+  --color-info: #06b6d4;
+  --color-info-light: #ecfeff;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -25,33 +25,73 @@ body {
 }
 
 @layer base {
-  * { @apply border-gray-200; }
+  * { @apply border-slate-200/80; }
 }
 
 @utility sidebar-link {
-  @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150;
+  @apply flex items-center gap-3 px-4 py-2 rounded-full text-sm font-semibold transition-all duration-150;
 }
 @utility sidebar-link-active {
-  @apply bg-primary/10 text-primary;
+  @apply bg-white text-slate-900 shadow-sm border border-slate-200/50;
 }
 @utility sidebar-link-inactive {
-  @apply text-secondary hover:bg-gray-100 hover:text-foreground;
+  @apply text-slate-500 hover:text-slate-800;
 }
 @utility card {
-  @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  @apply bg-white rounded-2xl border border-slate-100/80 shadow-[0_4px_24px_rgba(0,0,0,0.025)];
 }
 @utility input-field {
-  @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all;
+  @apply w-full px-3 py-2.5 bg-slate-50 border border-slate-200 text-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white transition-all;
 }
 @utility btn-primary {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/95 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-primary/10;
 }
 @utility btn-secondary {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-white text-foreground text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 active:scale-[0.98] transition-all duration-150;
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-slate-700 text-sm font-bold rounded-xl border border-slate-200 hover:bg-slate-50 active:scale-[0.98] transition-all duration-150;
 }
 @utility btn-danger {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-danger text-white text-sm font-medium rounded-lg hover:bg-danger/90 active:scale-[0.98] transition-all duration-150;
+  @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-danger text-white text-sm font-bold rounded-xl hover:bg-danger/95 active:scale-[0.98] transition-all duration-150 shadow-md shadow-danger/10;
 }
 @utility badge {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+}
+
+/* Light Theme Overrides for Components and Layout Containers */
+.bg-gray-50, 
+.bg-gray-50\/50,
+.bg-gray-50\/30 {
+  background-color: #f8fafc !important;
+}
+.hover\:bg-gray-50:hover, 
+.hover\:bg-gray-50\/50:hover {
+  background-color: #f1f5f9 !important;
+}
+.bg-gray-100 {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+.text-gray-300 {
+  color: #cbd5e1 !important;
+}
+.text-secondary {
+  color: #64748b !important;
+}
+.text-foreground {
+  color: #0f172a !important;
+}
+.border-gray-100, 
+.border-gray-200, 
+.border-gray-300 {
+  border-color: #e2e8f0 !important;
+}
+.divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+  color: #0f172a;
 }

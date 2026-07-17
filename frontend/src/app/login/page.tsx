@@ -80,7 +80,7 @@ function LoginForm() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-transparent border-none outline-none text-sm text-white placeholder-slate-500 focus:ring-0"
+                  className="w-full bg-transparent border-none outline-none text-sm !text-white placeholder-slate-500 focus:ring-0"
                   placeholder="Enter credential ID"
                   autoComplete="username"
                   autoFocus
@@ -101,7 +101,7 @@ function LoginForm() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-transparent border-none outline-none text-sm text-white placeholder-slate-500 focus:ring-0"
+                  className="w-full bg-transparent border-none outline-none text-sm !text-white placeholder-slate-500 focus:ring-0"
                   placeholder="••••••••••••"
                   autoComplete="current-password"
                 />

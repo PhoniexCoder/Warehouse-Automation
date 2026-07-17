@@ -94,12 +94,6 @@ class UserService:
             raise NotFoundError("User", str(user_id))
         return user
 
-    async def get_by_username(self, username: str) -> User:
-        user = await self._get_by_username(username)
-        if not user:
-            raise NotFoundError("User", username)
-        return user
-
     async def list_all(self) -> list[User]:
         stmt = select(User).order_by(User.username)
         result = await self._session.execute(stmt)

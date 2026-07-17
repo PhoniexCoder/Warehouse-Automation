@@ -4,18 +4,6 @@ export interface ApiResponse<T = unknown> {
   error?: { code: string; message: string } | null
 }
 
-export interface LoginPayload {
-  username: string
-  password: string
-}
-
-export interface RegisterPayload {
-  username: string
-  email: string
-  password: string
-  role: string
-}
-
 export interface TokenData {
   access_token: string
   refresh_token: string
@@ -46,15 +34,6 @@ export interface Camera {
   stream_url: string
   status: string
   last_seen: string | null
-}
-
-export interface Box {
-  id: string
-  tracking_id: number
-  qr_data: string | null
-  camera_id: string
-  status: string
-  created_at: string
 }
 
 export interface InventoryItem {

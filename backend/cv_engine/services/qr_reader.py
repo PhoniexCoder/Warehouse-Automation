@@ -13,10 +13,6 @@ except ImportError:
     LOGGER.warning("pyzbar not installed — QR fallback disabled")
 
 
-class QRReaderError(Exception):
-    pass
-
-
 class QRReader:
     def __init__(self) -> None:
         self._detector = cv2.QRCodeDetector()

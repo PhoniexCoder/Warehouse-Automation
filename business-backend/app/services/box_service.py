@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 import logging
 
 from sqlalchemy import select
@@ -61,12 +60,6 @@ class BoxService:
         )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
-
-    async def update_status(self, box_id: uuid.UUID, status: BoxStatus) -> Box:
-        box = await self.get(box_id)
-        box.status = status
-        await self._session.flush()
-        return box
 
     async def list_all(
         self,

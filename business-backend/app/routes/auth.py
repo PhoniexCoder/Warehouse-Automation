@@ -12,7 +12,6 @@ from app.schemas.auth import (
     RefreshRequest,
     TokenResponse,
     UserResponse,
-    UserRoleEnum,
 )
 from app.auth.user_service import UserService
 from app.auth.permissions import require_admin, get_current_user

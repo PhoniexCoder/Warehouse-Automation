@@ -23,6 +23,10 @@ class LineCounter:
     def total_count(self) -> int:
         return self._total_count
 
+    @total_count.setter
+    def total_count(self, value: int) -> None:
+        self._total_count = value
+
     @property
     def crossed_ids(self) -> set[int]:
         return self._crossed_ids.copy()
@@ -63,12 +67,3 @@ class LineCounter:
             self._prev_centers[tid] = center_y
 
         return newly_crossed
-
-    def is_counted(self, track_id: int) -> bool:
-        return track_id in self._crossed_ids
-
-    def reset(self) -> None:
-        self._prev_centers.clear()
-        self._crossed_ids.clear()
-        self._total_count = 0
-        LOGGER.info("LineCounter reset")
