@@ -5,7 +5,6 @@ from typing import Optional
 
 import cv2
 import numpy as np
-import qrcode
 
 LOGGER = logging.getLogger(__name__)
 
@@ -217,16 +216,7 @@ class SimulatedCameraSource:
         ))
 
     def _generate_qr_image(self, data: str, size: int = 50) -> Optional[np.ndarray]:
-        try:
-            qr = qrcode.QRCode(box_size=2, border=1)
-            qr.add_data(data)
-            qr.make(fit=True)
-            pil_img = qr.make_image(fill_color="black", back_color="white")
-            np_img = np.array(pil_img.convert("RGB"))
-            return cv2.resize(np_img, (size, size), interpolation=cv2.INTER_NEAREST)
-        except Exception as exc:
-            LOGGER.warning("QR generation failed for %s: %s", data, exc)
-            return None
+        return None
 
     def _overlay_qr(self, frame: np.ndarray, box: SimulatedBox, x1: int, y1: int, x2: int, y2: int) -> None:
         if box.qr_image is None:
