@@ -17,7 +17,7 @@ done
 python3 -c "
 import urllib.request, json
 
-data = json.dumps({'username': 'admin', 'email': 'admin@warehouse.local', 'password': 'admin', 'warehouse_id': None}).encode()
+data = json.dumps({'username': 'admin', 'email': 'admin@warehouse.com', 'password': 'admin12345', 'role': 'ADMIN'}).encode()
 req = urllib.request.Request(
     'http://localhost:8001/api/v1/register',
     data=data,
