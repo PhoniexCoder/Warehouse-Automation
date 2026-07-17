@@ -27,3 +27,5 @@ pytest-mock==3.14.0
 
 # Utility
 pillow==11.0.0
+requests
+httpx

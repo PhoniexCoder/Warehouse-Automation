@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: warehouse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  business:
+    build:
+      context: ./business-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/warehouse"
+      HOST: "0.0.0.0"
+      PORT: "8001"
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-in-production}
+      AI_ENGINE_URL: "http://cv-engine:8000"
+    volumes:
+      - ./docker/entrypoint-business.sh:/app/entrypoint.sh:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: ["bash", "/app/entrypoint.sh"]
+
+  cv-engine:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cv
+    ports:
+      - "8000:8000"
+    environment:
+      BUSINESS_BACKEND_URL: "http://business:8001"
+      MODEL_PATH: "/app/models/box_model.pt"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+    volumes:
+      - stream-cache:/app/stream_cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      business:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: "http://localhost:8001/api/v1"
+    ports:
+      - "3000:3000"
+    environment:
+      NEXTAUTH_URL: "http://localhost:3000"
+    depends_on:
+      business:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  stream-cache:

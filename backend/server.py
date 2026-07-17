@@ -49,13 +49,15 @@ import requests
 import threading
 import time
 
+BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
+
 def sync_cameras_loop():
     # Wait for both servers to be fully booted
     time.sleep(3)
     LOGGER.info("VMS Sync loop started")
     while True:
         try:
-            url = "http://localhost:8001/api/v1/cameras/internal/active"
+            url = f"{BUSINESS_BACKEND_URL}/api/v1/cameras/internal/active"
             res = requests.get(url, timeout=5)
             if res.status_code == 200:
                 data = res.json()
@@ -83,7 +85,7 @@ def sync_cameras_loop():
                                     "display_name": cam["camera_name"],
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": r"A:\Warehoouse  Automation\models\box_model.pt",
+                                    "model_path": os.getenv("MODEL_PATH", "models/box_model.pt"),
                                 }
                             else:
                                 config = {
@@ -93,7 +95,7 @@ def sync_cameras_loop():
                                     "display_name": cam["camera_name"],
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": r"A:\Warehoouse  Automation\models\box_model.pt",
+                                    "model_path": os.getenv("MODEL_PATH", "models/box_model.pt"),
                                 }
                             LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
                                          cam["camera_name"], cam_id, config["source_type"])
