@@ -1,13 +1,13 @@
 streams:
-  ch0: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=0&subtype=0
-  ch1: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=1&subtype=0
-  ch2: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=2&subtype=0
-  ch3: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=3&subtype=0
-  ch4: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=4&subtype=0
-  ch5: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=5&subtype=0
-  ch6: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=6&subtype=0
-  ch7: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=7&subtype=0
-  ch8: dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=8&subtype=0
+  ch0: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=0&subtype=0"
+  ch1: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=1&subtype=0"
+  ch2: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=2&subtype=0"
+  ch3: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=3&subtype=0"
+  ch4: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=4&subtype=0"
+  ch5: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=5&subtype=0"
+  ch6: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=6&subtype=0"
+  ch7: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=7&subtype=0"
+  ch8: "dvrip://${NVR_USER}:${NVR_PASS}@${NVR_HOST}:${NVR_PORT}?channel=8&subtype=0"
 
 api:
   listen: ":1984"
