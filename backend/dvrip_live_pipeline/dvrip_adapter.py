@@ -7,7 +7,7 @@ and any OpenCV-based pipeline can use native DVRIP without RTSP/go2rtc.
 
 import cv2
 import numpy as np
-from tvs_dvrip import TVSDVRIPReader
+from dvrip_live_pipeline.tvs_dvrip import TVSDVRIPReader
 
 
 class DVRIPCapture:

@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzbar0 \
     libffi-dev \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3 /usr/bin/python
