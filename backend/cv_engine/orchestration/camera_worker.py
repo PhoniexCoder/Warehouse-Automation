@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -54,7 +55,7 @@ class CameraWorker:
         self._counter: Optional[LineCounter] = None
         self._duplicate_guard: Optional[DuplicateGuard] = None
         self._seen_tracks = set()
-        self._dvrip_detector: Any = None
+        self._detector: Any = None
 
     def run(self) -> None:
         LOGGER.info("[%s] Worker starting (source=%s, scene=%s, line_y=%d)",
@@ -138,16 +139,15 @@ class CameraWorker:
                 scene=self._scene,
             )
         elif self._source_type == "dvrip":
-            from dvrip_live_pipeline.dvrip_adapter import DVRIPCapture
-            self._frame_source = DVRIPCapture(
-                host=self.config.get("host", "192.168.1.35"),
-                username=self.config.get("username", "uxdp"),
-                password=self.config.get("password", "cw8adc"),
-                channel=self.config.get("channel", 0),
-                port=self.config.get("port", 34567),
-            )
+            go2rtc_url = os.getenv("GO2RTC_URL", "http://go2rtc:1984")
+            channel = self.config.get("channel", 0)
+            rtsp_url = f"rtsp://go2rtc:8554/ch{channel}"
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            self._frame_source = cv2.VideoCapture(rtsp_url)
+            if not self._frame_source.isOpened():
+                raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url}")
             from cv_engine.services.detector import BoxDetector
-            self._dvrip_detector = BoxDetector(
+            self._detector = BoxDetector(
                 model_path=self.config.get("model_path"),
                 conf_threshold=self.config.get("conf", 0.5),
                 device=self.config.get("device", "cpu"),
@@ -174,42 +174,6 @@ class CameraWorker:
         self._counter = LineCounter(line_y=self._line_y)
         self._duplicate_guard = DuplicateGuard()
 
-        # Spawn FFmpeg RTMP streaming process to MediaMTX
-        import subprocess
-        if self._source_type == "simulated":
-            width = self._frame_source.width
-            height = self._frame_source.height
-        elif self._source_type == "dvrip":
-            width = int(self._frame_source.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(self._frame_source.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        else:
-            width = int(self._frame_source._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(self._frame_source._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        rtmp_url = f"rtmp://localhost:1935/live/{self.camera_id}"
-        ffmpeg_cmd = [
-            'ffmpeg',
-            '-y',
-            '-f', 'rawvideo',
-            '-vcodec', 'rawvideo',
-            '-pix_fmt', 'bgr24',
-            '-s', f'{width}x{height}',
-            '-r', f'{self._target_fps}',
-            '-i', '-',
-            '-c:v', 'libx264',
-            '-pix_fmt', 'yuv420p',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
-            '-f', 'flv',
-            rtmp_url
-        ]
-        self._ffmpeg_process = subprocess.Popen(
-            ffmpeg_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-
     def _read_frame(self):
         if self._source_type == "simulated":
             return self._frame_source.read()
@@ -227,8 +191,8 @@ class CameraWorker:
     def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> list[dict]:
         if pre_dets is not None:
             detections = pre_dets
-        elif self._dvrip_detector is not None:
-            detections = self._dvrip_detector.detect(frame)
+        elif self._detector is not None:
+            detections = self._detector.detect(frame)
         else:
             detections, _ = self._frame_source.infer(frame)
 
@@ -275,11 +239,6 @@ class CameraWorker:
 
     def _publish_frame(self, frame: np.ndarray) -> None:
         self._frame_store.publish(self.camera_id, frame)
-        if hasattr(self, '_ffmpeg_process') and self._ffmpeg_process and self._ffmpeg_process.stdin:
-            try:
-                self._ffmpeg_process.stdin.write(frame.tobytes())
-            except Exception:
-                pass
 
     def _report_health(self, status: str, extras: Optional[dict] = None) -> None:
         entry = {
@@ -300,14 +259,6 @@ class CameraWorker:
 
     def _cleanup(self) -> None:
         LOGGER.info("[%s] Worker cleaning up", self.camera_id)
-        if hasattr(self, '_ffmpeg_process') and self._ffmpeg_process:
-            try:
-                if self._ffmpeg_process.stdin:
-                    self._ffmpeg_process.stdin.close()
-                self._ffmpeg_process.terminate()
-                self._ffmpeg_process.wait(timeout=2)
-            except Exception:
-                pass
         try:
             if hasattr(self._frame_source, "release"):
                 self._frame_source.release()

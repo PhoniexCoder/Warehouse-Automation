@@ -74,13 +74,10 @@ def sync_cameras_loop():
                             if stream_url.startswith("dvrip://"):
                                 from urllib.parse import urlparse
                                 parsed = urlparse(stream_url)
+                                channel = int(parsed.path.lstrip("/")) if parsed.path else 0
                                 config = {
                                     "source_type": "dvrip",
-                                    "host": parsed.hostname,
-                                    "port": parsed.port or 34567,
-                                    "channel": int(parsed.path.lstrip("/")) if parsed.path else 0,
-                                    "username": parsed.username or "uxdp",
-                                    "password": parsed.password or "cw8adc",
+                                    "channel": channel,
                                     "line_y": 500,
                                     "display_name": cam["camera_name"],
                                     "target_fps": 5,

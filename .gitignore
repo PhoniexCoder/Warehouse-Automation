@@ -25,6 +25,12 @@ dist/
 .env*.local
 .env.local
 
+# Runtime data
+backend/data/
+backend/stream_cache/
+data/
+*.db
+
 # IDEs and editors
 .vscode/
 .idea/
