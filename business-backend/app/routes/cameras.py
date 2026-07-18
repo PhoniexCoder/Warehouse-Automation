@@ -70,7 +70,7 @@ async def list_cameras(
         if cam_id_str in ai_status:
             c_res["health"] = ai_status[cam_id_str].get("health")
         else:
-            c_res["health"] = None
+            c_res["health"] = {"status": "dead", "error": "Not registered in AI engine"}
         data.append(c_res)
 
     return ApiResponse(
@@ -102,7 +102,7 @@ async def get_camera(
     if cam_id_str in ai_status:
         c_res["health"] = ai_status[cam_id_str].get("health")
     else:
-        c_res["health"] = None
+        c_res["health"] = {"status": "dead", "error": "Not registered in AI engine"}
 
     return ApiResponse(
         success=True,
