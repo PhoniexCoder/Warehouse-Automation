@@ -293,6 +293,25 @@ class CameraWorker:
         if not detections:
             return [], []
 
+        if self._roi_points:
+            h, w = frame.shape[:2]
+            pixel_pts = np.array(
+                [[int(p[0] * w), int(p[1] * h)] for p in self._roi_points], dtype=np.int32
+            )
+            filtered = []
+            for det in detections:
+                bbox = det.get("bbox")
+                if bbox and len(bbox) == 4:
+                    x1, y1, x2, y2 = bbox
+                    cx = int((x1 + x2) / 2)
+                    cy = int((y1 + y2) / 2)
+                    if cv2.pointPolygonTest(pixel_pts, (cx, cy), False) >= 0:
+                        filtered.append(det)
+            detections = filtered
+
+        if not detections:
+            return [], []
+
         detections = self._box_processor.process_detections(frame, detections)
 
         if self._tracker is not None:

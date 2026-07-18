@@ -530,7 +530,8 @@ export default function CamerasPage() {
                   <RoiOverlay
                     mjpegUrl={getMjpegUrl(editing.id)}
                     roi={roi}
-                    onRoiChange={(newRoi) => { setRoi(newRoi); setRoiDrawing(false) }}
+                    onRoiChange={(newRoi) => setRoi(newRoi)}
+                    onDrawingComplete={() => setRoiDrawing(false)}
                     drawing={roiDrawing}
                   />
                 </div>

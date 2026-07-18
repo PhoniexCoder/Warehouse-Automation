@@ -6,10 +6,11 @@ interface RoiOverlayProps {
   mjpegUrl: string
   roi: { x: number; y: number }[] | null
   onRoiChange: (roi: { x: number; y: number }[] | null) => void
+  onDrawingComplete?: () => void
   drawing: boolean
 }
 
-export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayProps) {
+export function RoiOverlay({ mjpegUrl, roi, onRoiChange, onDrawingComplete, drawing }: RoiOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pointsRef = useRef<{ x: number; y: number }[]>([])
@@ -118,8 +119,10 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
   function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!drawingRef.current) return
     const pos = getPos(e)
-    pointsRef.current = [...pointsRef.current, pos]
+    const newPoints = [...pointsRef.current, pos]
+    pointsRef.current = newPoints
     forceRender((n) => n + 1)
+    onRoiChange(newPoints)
   }
 
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -130,7 +133,9 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
   function handleDoubleClick() {
     if (!drawingRef.current || pointsRef.current.length < 3) return
     hoverRef.current = null
-    onRoiChange([...pointsRef.current])
+    if (onDrawingComplete) {
+      onDrawingComplete()
+    }
   }
 
   return (
