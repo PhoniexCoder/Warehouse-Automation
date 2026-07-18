@@ -173,6 +173,11 @@ async def stream_camera(camera_id: str):
                             b"Content-Length: " + str(len(data)).encode() + b"\r\n"
                             b"\r\n" + data + b"\r\n"
                         )
+                    else:
+                        no_frame_count += 1
+                        if no_frame_count > 150:
+                            LOGGER.warning("No frames for camera %s after 5s, closing stream", camera_id)
+                            break
                 else:
                     no_frame_count += 1
                     if no_frame_count > 150:

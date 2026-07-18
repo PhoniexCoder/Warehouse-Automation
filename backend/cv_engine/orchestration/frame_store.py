@@ -15,9 +15,11 @@ class FrameStore:
             ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
         )
         path = os.path.join(self._cache_dir, f"{camera_id}.jpg")
+        tmp_path = path + ".tmp"
         try:
-            with open(path, "wb") as f:
+            with open(tmp_path, "wb") as f:
                 f.write(buffer.tobytes())
+            os.replace(tmp_path, path)
         except PermissionError:
             pass
 

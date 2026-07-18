@@ -32,6 +32,7 @@ services:
       GO2RTC_URL: "http://host.docker.internal:1984"
     volumes:
       - ./docker/entrypoint-business.sh:/app/entrypoint.sh:ro
+      - ./models:/app/models:ro
     depends_on:
       db:
         condition: service_healthy
