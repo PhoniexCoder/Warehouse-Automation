@@ -34,6 +34,8 @@ export interface Camera {
   stream_url: string
   status: string
   last_seen: string | null
+  model_path: string | null
+  roi: { x: number; y: number }[] | null
 }
 
 export interface InventoryItem {

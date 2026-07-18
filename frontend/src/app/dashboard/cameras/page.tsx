@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/Modal"
 import { Badge } from "@/components/ui/Badge"
 import { Spinner } from "@/components/ui/Spinner"
 import { format } from "date-fns"
+import { RoiOverlay } from "@/components/camera/RoiOverlay"
 
 const getMjpegUrl = (id: string): string => {
   if (typeof window !== "undefined") {
@@ -56,6 +57,11 @@ export default function CamerasPage() {
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
   const [importing, setImporting] = useState(false)
 
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [models, setModels] = useState<{ path: string; name: string; size_bytes: number }[]>([])
+  const [roi, setRoi] = useState<{ x: number; y: number }[] | null>(null)
+  const [roiDrawing, setRoiDrawing] = useState(false)
+
   const fetchCamerasData = useCallback(async () => {
     try {
       const [cams, whs] = await Promise.all([
@@ -80,10 +86,17 @@ export default function CamerasPage() {
     setWarehouseId(warehouses[0]?.id || "")
     setCameraStatus("online")
     setSelectedChannel(null)
+    setSelectedModel(null)
+    setRoi(null)
+    setRoiDrawing(false)
     setModalOpen(true)
     try {
-      const streams = await api.getGo2rtcStreams()
+      const [streams, modelsList] = await Promise.all([
+        api.getGo2rtcStreams(),
+        api.getModels(),
+      ])
       setGo2rtcChannels(streams)
+      setModels(modelsList)
     } catch {
       setGo2rtcChannels({})
     }
@@ -96,10 +109,17 @@ export default function CamerasPage() {
     setWarehouseId(c.warehouse_id)
     setCameraStatus(c.status)
     setSelectedChannel(null)
+    setSelectedModel(c.model_path || null)
+    setRoi(c.roi || null)
+    setRoiDrawing(false)
     setModalOpen(true)
     try {
-      const streams = await api.getGo2rtcStreams()
+      const [streams, modelsList] = await Promise.all([
+        api.getGo2rtcStreams(),
+        api.getModels(),
+      ])
       setGo2rtcChannels(streams)
+      setModels(modelsList)
       const match = c.stream_url?.match(/rtsp:\/\/go2rtc:8554\/(\w+)/)
       if (match && streams[match[1]]) {
         setSelectedChannel(match[1])
@@ -118,6 +138,8 @@ export default function CamerasPage() {
           camera_name: cameraName,
           stream_url: streamUrl,
           status: cameraStatus,
+          model_path: selectedModel,
+          roi: roi,
         })
       } else {
         await api.createCamera({
@@ -125,6 +147,8 @@ export default function CamerasPage() {
           camera_name: cameraName,
           stream_url: streamUrl,
           status: cameraStatus,
+          model_path: selectedModel,
+          roi: roi,
         })
       }
       setModalOpen(false)
@@ -324,6 +348,18 @@ export default function CamerasPage() {
                       {c.stream_url && (
                         <p className="text-xs text-secondary mt-1.5 truncate font-mono">{c.stream_url}</p>
                       )}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        {c.model_path && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
+                            {c.model_path.split("/").pop()?.replace(".pt", "")}
+                          </span>
+                        )}
+                        {c.roi && c.roi.length > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600 font-medium">
+                            ROI
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-secondary mt-1.5">
                         {c.last_seen ? (
                           <>Last seen {format(new Date(c.last_seen), "MMM d, HH:mm")}</>
@@ -438,6 +474,66 @@ export default function CamerasPage() {
                 <option value="online">Online</option>
                 <option value="offline">Offline</option>
               </select>
+            </div>
+          )}
+
+          {models.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1.5">ML Model</label>
+              <select
+                value={selectedModel || ""}
+                onChange={(e) => setSelectedModel(e.target.value || null)}
+                className="input-field"
+              >
+                <option value="">Default (box_model.pt)</option>
+                {models.map((m) => (
+                  <option key={m.path} value={m.path}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {editing && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-medium text-foreground">Region of Interest (ROI)</label>
+                <div className="flex items-center gap-2">
+                  {roi && roi.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setRoi(null); setRoiDrawing(false) }}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      Clear ROI
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setRoiDrawing(!roiDrawing)}
+                    className={`text-xs px-2 py-0.5 rounded ${roiDrawing ? "bg-green-100 text-green-700 border border-green-300" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                  >
+                    {roiDrawing ? "Drawing..." : "Draw ROI"}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-secondary mb-2">
+                {roiDrawing
+                  ? "Click to add points, double-click to finish. Detection will be limited to the ROI area."
+                  : roi && roi.length > 2
+                    ? `${roi.length} points defined — detection limited to ROI area`
+                    : "No ROI set — detection runs on full frame"
+                }
+              </p>
+              {(editing.stream_url || editing.id) && (
+                <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "16/9" }}>
+                  <RoiOverlay
+                    mjpegUrl={getMjpegUrl(editing.id)}
+                    roi={roi}
+                    onRoiChange={(newRoi) => { setRoi(newRoi); setRoiDrawing(false) }}
+                    drawing={roiDrawing}
+                  />
+                </div>
+              )}
             </div>
           )}
           <div className="flex justify-end gap-3 pt-2">

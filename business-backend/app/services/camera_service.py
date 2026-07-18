@@ -20,12 +20,16 @@ class CameraService:
         camera_name: str,
         stream_url: str,
         status: str | None = None,
+        model_path: str | None = None,
+        roi: dict | list | None = None,
     ) -> Camera:
         camera = Camera(
             warehouse_id=warehouse_id,
             camera_name=camera_name,
             stream_url=stream_url,
             status=CameraStatus(status) if status else CameraStatus.ACTIVE,
+            model_path=model_path,
+            roi=roi,
         )
         self._session.add(camera)
         await self._session.flush()

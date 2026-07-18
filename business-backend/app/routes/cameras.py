@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import asyncio
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -33,6 +34,8 @@ async def create_camera(
         camera_name=body.camera_name,
         stream_url=body.stream_url,
         status=body.status,
+        model_path=body.model_path,
+        roi=body.roi,
     )
     await audit.log(action="camera.created")
     return ApiResponse(
@@ -83,6 +86,8 @@ async def update_camera(
         camera_name=body.camera_name,
         stream_url=body.stream_url,
         status=body.status,
+        model_path=body.model_path,
+        roi=body.roi,
     )
     await audit.log(action="camera.updated")
     return ApiResponse(
@@ -233,3 +238,30 @@ async def list_go2rtc_streams(
     except Exception as exc:
         LOGGER.warning("Failed to reach go2rtc: %s", exc)
         return ApiResponse(success=True, data={})
+
+
+MODEL_DIRS = [
+    Path(os.getenv("MODEL_DIR", "models")),
+    Path("/app/models"),
+]
+
+
+@router.get("/models", summary="List available ML model files")
+async def list_models(
+    _any: User = Depends(require_any),
+) -> ApiResponse:
+    models = []
+    seen = set()
+    for d in MODEL_DIRS:
+        if not d.is_dir():
+            continue
+        for pt in sorted(d.glob("*.pt")):
+            rel = str(pt)
+            if rel not in seen:
+                seen.add(rel)
+                models.append({
+                    "path": rel,
+                    "name": pt.stem,
+                    "size_bytes": pt.stat().st_size,
+                })
+    return ApiResponse(success=True, data=models)

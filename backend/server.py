@@ -76,6 +76,8 @@ def sync_cameras_loop():
                         
                         if cam_id not in camera_manager._configs:
                             stream_url = cam["stream_url"]
+                            cam_model_path = cam.get("model_path") or os.getenv("MODEL_PATH", "models/box_model.pt")
+                            cam_roi = cam.get("roi")
                             if stream_url.startswith("dvrip://"):
                                 from urllib.parse import urlparse
                                 parsed = urlparse(stream_url)
@@ -87,7 +89,8 @@ def sync_cameras_loop():
                                     "display_name": cam["camera_name"],
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": os.getenv("MODEL_PATH", "models/box_model.pt"),
+                                    "model_path": cam_model_path,
+                                    "roi": cam_roi,
                                 }
                             else:
                                 config = {
@@ -97,7 +100,8 @@ def sync_cameras_loop():
                                     "display_name": cam["camera_name"],
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": os.getenv("MODEL_PATH", "models/box_model.pt"),
+                                    "model_path": cam_model_path,
+                                    "roi": cam_roi,
                                 }
                             LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
                                          cam["camera_name"], cam_id, config["source_type"])

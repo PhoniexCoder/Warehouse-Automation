@@ -141,6 +141,8 @@ export const api = {
     camera_name: string
     stream_url: string
     status?: string
+    model_path?: string
+    roi?: { x: number; y: number }[]
   }): Promise<Camera> => {
     const res = await client.post<ApiResponse>("/cameras", data)
     return res.data.data as Camera
@@ -149,12 +151,20 @@ export const api = {
     camera_name?: string
     stream_url?: string
     status?: string
+    model_path?: string
+    roi?: { x: number; y: number }[] | null
   }): Promise<Camera> => {
     const res = await client.put<ApiResponse>(`/cameras/${id}`, data)
     return res.data.data as Camera
   },
   deleteCamera: async (id: string): Promise<void> => {
     await client.delete(`/cameras/${id}`)
+  },
+
+  // Models
+  getModels: async (): Promise<{ path: string; name: string; size_bytes: number }[]> => {
+    const res = await client.get<ApiResponse>("/models")
+    return (res.data.data as { path: string; name: string; size_bytes: number }[]) || []
   },
 
   // VMS Discovery

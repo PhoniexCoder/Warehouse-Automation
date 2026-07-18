@@ -9,12 +9,16 @@ class CameraCreate(BaseModel):
     camera_name: str = Field(..., min_length=1, max_length=255, examples=["Entry Gate Camera"])
     stream_url: str = Field(..., examples=["rtsp://192.168.1.100:554/stream1"])
     status: str | None = None
+    model_path: str | None = None
+    roi: dict | list | None = None
 
 
 class CameraUpdate(BaseModel):
     camera_name: str | None = None
     stream_url: str | None = None
     status: str | None = None
+    model_path: str | None = None
+    roi: dict | list | None = None
 
 
 class CameraResponse(BaseModel):
@@ -24,6 +28,8 @@ class CameraResponse(BaseModel):
     stream_url: str
     status: str
     last_seen: datetime | None
+    model_path: str | None = None
+    roi: dict | list | None = None
 
     model_config = {"from_attributes": True}
 

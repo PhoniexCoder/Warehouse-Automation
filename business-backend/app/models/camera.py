@@ -3,7 +3,7 @@ import uuid
 
 from sqlalchemy import String, DateTime, ForeignKey, Enum as SAEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSON
 import enum
 
 from app.database.base import Base
@@ -38,6 +38,12 @@ class Camera(Base):
     )
     last_seen: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
+    )
+    model_path: Mapped[str | None] = mapped_column(
+        String(500), nullable=True,
+    )
+    roi: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True,
     )
 
     warehouse = relationship("Warehouse", back_populates="cameras")

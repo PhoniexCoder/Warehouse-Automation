@@ -47,6 +47,8 @@ class CameraWorker:
         self._frame_interval = 1.0 / max(self._target_fps, 1.0)
         self._consecutive_errors = 0
         self._frame_store = FrameStore()
+        self._roi = config.get("roi")
+        self._roi_mask = None
 
         self._source: Optional[SimulatedCameraSource] = None
         self._frame_source: Any = None
@@ -187,6 +189,7 @@ class CameraWorker:
             self._tracker = None
         self._counter = LineCounter(line_y=self._line_y)
         self._duplicate_guard = DuplicateGuard()
+        self._build_roi_mask()
 
     def _read_frame(self):
         if self._source_type == "simulated":
@@ -202,13 +205,52 @@ class CameraWorker:
                 return False, None, None
             return True, frame, None
 
+    def _build_roi_mask(self) -> None:
+        if not self._roi:
+            return
+        points = self._roi
+        if isinstance(points, dict) and "points" in points:
+            points = points["points"]
+        if not isinstance(points, list) or len(points) < 3:
+            LOGGER.warning("[%s] ROI has fewer than 3 points, ignoring", self.camera_id)
+            return
+        normalized = all(
+            isinstance(p, (list, tuple)) and len(p) == 2 and 0 <= p[0] <= 1 and 0 <= p[1] <= 1
+            for p in points
+        )
+        self._roi_points = points
+        self._roi_normalized = normalized
+        LOGGER.info("[%s] ROI mask configured with %d points (normalized=%s)",
+                     self.camera_id, len(points), normalized)
+
+    def _apply_roi(self, frame: np.ndarray) -> np.ndarray:
+        if self._roi_mask is None and not hasattr(self, "_roi_points"):
+            return frame
+        if not hasattr(self, "_roi_points") or not self._roi_points:
+            return frame
+        h, w = frame.shape[:2]
+        pts = self._roi_points
+        if getattr(self, "_roi_normalized", False):
+            pixel_pts = np.array(
+                [[int(p[0] * w), int(p[1] * h)] for p in pts], dtype=np.int32
+            )
+        else:
+            pixel_pts = np.array(pts, dtype=np.int32)
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.fillPoly(mask, [pixel_pts], 255)
+        self._roi_mask = mask
+        masked = cv2.bitwise_and(frame, frame, mask=mask)
+        return masked
+
     def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> list[dict]:
+        detect_frame = self._apply_roi(frame) if hasattr(self, "_roi_points") else frame
+
         if pre_dets is not None:
             detections = pre_dets
         elif self._detector is not None:
-            detections = self._detector.detect(frame)
+            detections = self._detector.detect(detect_frame)
         else:
-            detections, _ = self._frame_source.infer(frame)
+            detections, _ = self._frame_source.infer(detect_frame)
 
         if not detections:
             return []
