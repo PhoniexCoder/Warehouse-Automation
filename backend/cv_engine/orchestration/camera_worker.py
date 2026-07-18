@@ -49,6 +49,7 @@ class CameraWorker:
         self._frame_store = FrameStore()
         self._roi = config.get("roi")
         self._roi_mask = None
+        self._roi_points = []
 
         self._source: Optional[SimulatedCameraSource] = None
         self._frame_source: Any = None
