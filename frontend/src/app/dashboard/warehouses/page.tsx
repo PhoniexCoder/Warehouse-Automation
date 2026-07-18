@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 import type { Warehouse } from "@/lib/types"
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -10,6 +11,7 @@ import { Spinner } from "@/components/ui/Spinner"
 import { format } from "date-fns"
 
 export default function WarehousesPage() {
+  const { user } = useAuth()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -65,9 +67,14 @@ export default function WarehousesPage() {
   }
 
   async function handleDelete(id: string) {
-    await api.deleteWarehouse(id)
-    setConfirmDelete(null)
-    await fetch()
+    try {
+      await api.deleteWarehouse(id)
+      setConfirmDelete(null)
+      await fetch()
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to delete warehouse")
+      setConfirmDelete(null)
+    }
   }
 
   if (loading) return <Spinner />
@@ -79,12 +86,14 @@ export default function WarehousesPage() {
           <h2 className="text-2xl font-bold text-foreground">Warehouses</h2>
           <p className="text-sm text-secondary mt-1">Manage warehouse locations</p>
         </div>
-        <Button onClick={openCreate}>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Warehouse
-        </Button>
+        {user?.role !== "operator" && (
+          <Button onClick={openCreate}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Warehouse
+          </Button>
+        )}
       </div>
 
       {warehouses.length === 0 ? (
@@ -118,14 +127,16 @@ export default function WarehousesPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
-                <Button variant="secondary" size="sm" onClick={() => openEdit(w)}>
-                  Edit
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => setConfirmDelete(w.id)}>
-                  Delete
-                </Button>
-              </div>
+              {user?.role !== "operator" && (
+                <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+                  <Button variant="secondary" size="sm" onClick={() => openEdit(w)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => setConfirmDelete(w.id)}>
+                    Delete
+                  </Button>
+                </div>
+              )}
             </Card>
           ))}
         </div>

@@ -20,7 +20,7 @@ router = APIRouter(tags=["Warehouses"])
 @router.post("/warehouses", status_code=201, summary="Create a warehouse")
 async def create_warehouse(
     body: WarehouseCreate,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = WarehouseService(session)
@@ -63,7 +63,7 @@ async def get_warehouse(
 @router.delete("/warehouses/{warehouse_id}", summary="Delete a warehouse")
 async def delete_warehouse(
     warehouse_id: uuid.UUID,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = WarehouseService(session)
@@ -77,7 +77,7 @@ async def delete_warehouse(
 async def update_warehouse(
     warehouse_id: uuid.UUID,
     body: WarehouseUpdate,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = WarehouseService(session)

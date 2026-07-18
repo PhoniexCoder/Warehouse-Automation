@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 import type { Camera, Warehouse } from "@/lib/types"
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -20,6 +21,7 @@ const getMjpegUrl = (id: string): string => {
 }
 
 export default function CamerasPage() {
+  const { user } = useAuth()
   const [cameras, setCameras] = useState<Camera[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [loading, setLoading] = useState(true)
@@ -161,9 +163,14 @@ export default function CamerasPage() {
   }
 
   async function handleDelete(id: string) {
-    await api.deleteCamera(id)
-    setConfirmDelete(null)
-    await fetchCamerasData()
+    try {
+      await api.deleteCamera(id)
+      setConfirmDelete(null)
+      await fetchCamerasData()
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to delete camera")
+      setConfirmDelete(null)
+    }
   }
 
   async function openDiscover() {
@@ -281,24 +288,28 @@ export default function CamerasPage() {
             <option value="online">Online</option>
             <option value="offline">Offline</option>
           </select>
-          <Button onClick={openDiscover} variant="secondary" className="flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            Auto-Discover
-          </Button>
-          <Button onClick={() => setDvripModalOpen(true)} variant="secondary" className="flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            DVRIP Connect
-          </Button>
-          <Button onClick={openCreate}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Camera
-          </Button>
+          {user?.role !== "operator" && (
+            <>
+              <Button onClick={openDiscover} variant="secondary" className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Auto-Discover
+              </Button>
+              <Button onClick={() => setDvripModalOpen(true)} variant="secondary" className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                DVRIP Connect
+              </Button>
+              <Button onClick={openCreate}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Camera
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -379,23 +390,25 @@ export default function CamerasPage() {
                     </Badge>
                   </div>
 
-                  <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
-                    <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>Edit</Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={async () => {
-                        const nextStatus = (c.status === "active" || c.status === "online") ? "offline" : "active"
-                        await api.updateCamera(c.id, {
-                          status: nextStatus,
-                        })
-                        await fetchCamerasData()
-                      }}
-                    >
-                      {(c.status === "active" || c.status === "online") ? "Set Offline" : "Set Online"}
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={() => setConfirmDelete(c.id)}>Delete</Button>
-                  </div>
+                  {user?.role !== "operator" && (
+                    <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
+                      <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>Edit</Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={async () => {
+                          const nextStatus = (c.status === "active" || c.status === "online") ? "offline" : "active"
+                          await api.updateCamera(c.id, {
+                            status: nextStatus,
+                          })
+                          await fetchCamerasData()
+                        }}
+                      >
+                        {(c.status === "active" || c.status === "online") ? "Set Offline" : "Set Online"}
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => setConfirmDelete(c.id)}>Delete</Button>
+                    </div>
+                  )}
                 </div>
               </Card>
             ))}

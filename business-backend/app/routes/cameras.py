@@ -14,7 +14,7 @@ from app.schemas.common import ApiResponse
 from app.schemas.camera import CameraCreate, CameraUpdate, CameraResponse, VmsScanRequest, VmsImportRequest, DvripConnectRequest
 from app.services.camera_service import CameraService
 from app.services.audit_service import AuditService
-from app.auth.permissions import require_admin, require_any
+from app.auth.permissions import require_manager_up, require_any
 from app.models.user import User
 
 LOGGER = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ router = APIRouter(tags=["Cameras"])
 @router.post("/cameras", status_code=201, summary="Register a camera")
 async def create_camera(
     body: CameraCreate,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = CameraService(session)
@@ -114,7 +114,7 @@ async def get_camera(
 async def update_camera(
     camera_uuid: uuid.UUID,
     body: CameraUpdate,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = CameraService(session)
@@ -135,7 +135,7 @@ async def update_camera(
 @router.delete("/cameras/{camera_uuid}", summary="Delete a camera")
 async def delete_camera(
     camera_uuid: uuid.UUID,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = CameraService(session)
@@ -171,7 +171,7 @@ async def scan_vms_channels(
 @router.post("/vms/import", summary="Auto-import active channels from an NVR")
 async def import_vms_cameras(
     body: VmsImportRequest,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     from app.services.nvr_discovery import NvrDiscoveryService
@@ -213,7 +213,7 @@ async def import_vms_cameras(
 @router.post("/vms/dvrip-connect", summary="Connect to NVR via DVRIP and auto-import all channels")
 async def dvrip_connect(
     body: DvripConnectRequest,
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     """One-click DVRIP setup: enter host/credentials, imports all 16 channels as dvrip:// URLs.
