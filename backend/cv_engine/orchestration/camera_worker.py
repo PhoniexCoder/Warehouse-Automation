@@ -214,36 +214,39 @@ class CameraWorker:
         if not isinstance(points, list) or len(points) < 3:
             LOGGER.warning("[%s] ROI has fewer than 3 points, ignoring", self.camera_id)
             return
-        normalized = all(
-            isinstance(p, (list, tuple)) and len(p) == 2 and 0 <= p[0] <= 1 and 0 <= p[1] <= 1
-            for p in points
-        )
-        self._roi_points = points
-        self._roi_normalized = normalized
-        LOGGER.info("[%s] ROI mask configured with %d points (normalized=%s)",
-                     self.camera_id, len(points), normalized)
+        self._roi_points = []
+        for p in points:
+            if isinstance(p, dict) and "x" in p and "y" in p:
+                self._roi_points.append((float(p["x"]), float(p["y"])))
+            elif isinstance(p, (list, tuple)) and len(p) == 2:
+                self._roi_points.append((float(p[0]), float(p[1])))
+            else:
+                LOGGER.warning("[%s] Skipping invalid ROI point: %s", self.camera_id, p)
+        if len(self._roi_points) < 3:
+            LOGGER.warning("[%s] ROI has fewer than 3 valid points after parsing, ignoring", self.camera_id)
+            self._roi_points = []
+            return
+        self._roi_normalized = True
+        self._roi_mask = None
+        LOGGER.info("[%s] ROI mask configured with %d points (normalized=True)",
+                     self.camera_id, len(self._roi_points))
 
     def _apply_roi(self, frame: np.ndarray) -> np.ndarray:
-        if self._roi_mask is None and not hasattr(self, "_roi_points"):
-            return frame
-        if not hasattr(self, "_roi_points") or not self._roi_points:
+        if not self._roi_points:
             return frame
         h, w = frame.shape[:2]
-        pts = self._roi_points
-        if getattr(self, "_roi_normalized", False):
-            pixel_pts = np.array(
-                [[int(p[0] * w), int(p[1] * h)] for p in pts], dtype=np.int32
-            )
-        else:
-            pixel_pts = np.array(pts, dtype=np.int32)
-        mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.fillPoly(mask, [pixel_pts], 255)
-        self._roi_mask = mask
-        masked = cv2.bitwise_and(frame, frame, mask=mask)
+        pixel_pts = np.array(
+            [[int(p[0] * w), int(p[1] * h)] for p in self._roi_points], dtype=np.int32
+        )
+        if self._roi_mask is None or self._roi_mask.shape != (h, w):
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(mask, [pixel_pts], 255)
+            self._roi_mask = mask
+        masked = cv2.bitwise_and(frame, frame, mask=self._roi_mask)
         return masked
 
     def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> list[dict]:
-        detect_frame = self._apply_roi(frame) if hasattr(self, "_roi_points") else frame
+        detect_frame = self._apply_roi(frame) if self._roi_points else frame
 
         if pre_dets is not None:
             detections = pre_dets
@@ -256,9 +259,12 @@ class CameraWorker:
             return []
 
         detections = self._box_processor.process_detections(frame, detections)
-        if self._tracker is None:
-            return []
-        tracked = self._tracker.update(detections, frame)
+
+        if self._tracker is not None:
+            tracked = self._tracker.update(detections, frame)
+        else:
+            tracked = detections
+
         if not tracked:
             return []
 
@@ -267,29 +273,42 @@ class CameraWorker:
 
         for obj in tracked:
             tid = obj.get("track_id")
-            if tid is None:
+            if tid is not None:
+                if tid in self._seen_tracks:
+                    continue
+                self._seen_tracks.add(tid)
+            else:
+                tid = f"{self.camera_id}-det-{len(self._seen_tracks)}"
+                self._seen_tracks.add(tid)
+
+            if self._counter:
+                self._counter.total_count += 1
+
+            bbox = obj.get("bbox") or obj.get("bbox_xyxy")
+            if bbox:
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = bbox
+                else:
+                    continue
+            else:
                 continue
 
-            if tid not in self._seen_tracks:
-                self._seen_tracks.add(tid)
-                if self._counter:
-                    self._counter.total_count += 1
-
-                x1, y1, x2, y2 = obj["bbox"]
-                base = {
-                    "camera_id": self.camera_id,
-                    "tracking_id": tid,
-                    "timestamp": ts,
-                    "type": _EVENT_TYPE_DETECTION,
-                    "qr_data": f"CRAX-BOX-{tid}",
-                    "box": {
-                        "x": x1,
-                        "y": y1,
-                        "width": x2 - x1,
-                        "height": y2 - y1,
-                    },
-                }
-                events.append(base)
+            base = {
+                "camera_id": self.camera_id,
+                "tracking_id": tid,
+                "timestamp": ts,
+                "type": _EVENT_TYPE_DETECTION,
+                "qr_data": f"CRAX-BOX-{tid}",
+                "box": {
+                    "x": x1,
+                    "y": y1,
+                    "width": x2 - x1,
+                    "height": y2 - y1,
+                },
+                "confidence": obj.get("confidence", 0),
+                "class": obj.get("class", "box"),
+            }
+            events.append(base)
 
         return events
 
