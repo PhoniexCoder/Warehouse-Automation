@@ -117,6 +117,7 @@ class _FFmpegGPUReader:
             "-hwaccel", "cuda",
             "-rtsp_transport", "tcp",
             "-i", self._url,
+            "-vf", "scale=1280:720",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-v", "error",
@@ -284,7 +285,8 @@ class VideoStream:
         if use_gpu:
             dims = _probe_stream(self._url)
             if dims:
-                self._width, self._height = dims
+                self._width = 1280
+                self._height = 720
                 self._gpu_reader = _FFmpegGPUReader(self._url, self._width, self._height)
                 if self._gpu_reader.is_alive():
                     self._use_gpu = True
@@ -326,6 +328,7 @@ class VideoStream:
     def _reader_loop(self) -> None:
         consecutive_failures = 0
         max_consecutive_failures = 600
+        target_w, target_h = 1280, 720
 
         while not self._stop.is_set():
             if self._use_gpu:
@@ -336,6 +339,9 @@ class VideoStream:
                 if not self._cap or not self._cap.isOpened():
                     break
                 ret, frame = self._cap.read()
+                if ret and frame is not None and (frame.shape[1] != target_w or frame.shape[0] != target_h):
+                    import cv2
+                    frame = cv2.resize(frame, (target_w, target_h))
 
             if not ret or frame is None:
                 consecutive_failures += 1
@@ -404,7 +410,8 @@ class VideoStream:
                 if use_gpu:
                     dims = _probe_stream(self._url)
                     if dims:
-                        self._width, self._height = dims
+                        self._width = 1280
+                        self._height = 720
                         self._gpu_reader = _FFmpegGPUReader(self._url, self._width, self._height)
                         if self._gpu_reader.is_alive():
                             self._use_gpu = True

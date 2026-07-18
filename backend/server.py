@@ -150,6 +150,7 @@ async def stream_camera(camera_id: str):
 
     async def _generate():
         last_mtime = 0.0
+        no_frame_count = 0
         try:
             while True:
                 mtime = frame_store.latest_mtime(camera_id)
@@ -157,12 +158,18 @@ async def stream_camera(camera_id: str):
                     data = frame_store.latest_bytes(camera_id)
                     if data:
                         last_mtime = mtime
+                        no_frame_count = 0
                         yield (
                             b"--frame\r\n"
                             b"Content-Type: image/jpeg\r\n"
                             b"Content-Length: " + str(len(data)).encode() + b"\r\n"
                             b"\r\n" + data + b"\r\n"
                         )
+                else:
+                    no_frame_count += 1
+                    if no_frame_count > 150:
+                        LOGGER.warning("No frames for camera %s after 5s, closing stream", camera_id)
+                        break
                 await asyncio.sleep(0.033)
         except asyncio.CancelledError:
             pass
