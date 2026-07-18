@@ -1,5 +1,8 @@
 FROM node:20-alpine AS builder
 
+ARG BACKEND_URL=http://business:8001
+ENV BACKEND_URL=$BACKEND_URL
+
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 WORKDIR /app
