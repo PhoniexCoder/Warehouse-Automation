@@ -107,6 +107,7 @@ class VideoStream:
         self._reader_thread: Optional[threading.Thread] = None
         self._watchdog_thread: Optional[threading.Thread] = None
         self._connected = False
+        self._reconnect_lock = threading.Lock()
 
         self._open_stream()
 
@@ -207,7 +208,7 @@ class VideoStream:
     def _reader_loop(self) -> None:
         """Continuously read frames from cv2.VideoCapture into the queue."""
         consecutive_failures = 0
-        max_consecutive_failures = 30
+        max_consecutive_failures = 600
         while not self._stop.is_set():
             if not self._cap or not self._cap.isOpened():
                 break
@@ -235,7 +236,9 @@ class VideoStream:
             except queue.Full:
                 pass
 
-        self._connected = False
+        with self._reconnect_lock:
+            if not self._stop.is_set():
+                self._connected = False
         LOGGER.debug("Reader loop ended for %s", self._url)
 
     def _watchdog_loop(self) -> None:
@@ -256,41 +259,53 @@ class VideoStream:
 
     def _try_reconnect(self) -> None:
         """Attempt to reconnect to the stream."""
-        attempt = 0
-        while not self._stop.is_set():
-            attempt += 1
-            if self._max_reconnect_attempts > 0 and attempt > self._max_reconnect_attempts:
-                LOGGER.error("Max reconnect attempts reached for %s", self._url)
-                self._connected = False
-                return
-
-            LOGGER.info("Reconnect attempt %d for %s", attempt, self._url)
-            self._stats.reconnects += 1
-            self._close_cap()
-
-            # Drain the queue
-            while not self._frame_queue.empty():
-                try:
-                    self._frame_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-            self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
-            if self._hardware_decode and sys.platform == "win32":
-                self._cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_D3D11)
-
-            if self._cap and self._cap.isOpened():
-                ret, frame = self._cap.read()
-                if ret and frame is not None:
-                    self._connected = True
-                    try:
-                        self._frame_queue.put_nowait(frame)
-                    except queue.Full:
-                        pass
-                    LOGGER.info("Reconnected to %s", self._url)
+        if not self._reconnect_lock.acquire(blocking=False):
+            return
+        try:
+            attempt = 0
+            while not self._stop.is_set():
+                attempt += 1
+                if self._max_reconnect_attempts > 0 and attempt > self._max_reconnect_attempts:
+                    LOGGER.error("Max reconnect attempts reached for %s", self._url)
+                    self._connected = False
                     return
 
-            time.sleep(self._reconnect_delay)
+                LOGGER.info("Reconnect attempt %d for %s", attempt, self._url)
+                self._stats.reconnects += 1
+                self._close_cap()
+
+                # Drain the queue
+                while not self._frame_queue.empty():
+                    try:
+                        self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
+                self._cap = cv2.VideoCapture(self._url, cv2.CAP_FFMPEG)
+                if self._hardware_decode and sys.platform == "win32":
+                    self._cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_D3D11)
+
+                if self._cap and self._cap.isOpened():
+                    ret, frame = self._cap.read()
+                    if ret and frame is not None:
+                        self._connected = True
+                        try:
+                            self._frame_queue.put_nowait(frame)
+                        except queue.Full:
+                            pass
+                        LOGGER.info("Reconnected to %s", self._url)
+
+                        # Restart reader thread to continue delivering frames
+                        if self._reader_thread is None or not self._reader_thread.is_alive():
+                            self._reader_thread = threading.Thread(
+                                target=self._reader_loop, daemon=True, name="vs-reader"
+                            )
+                            self._reader_thread.start()
+                        return
+
+                time.sleep(self._reconnect_delay)
+        finally:
+            self._reconnect_lock.release()
 
 
 # ---------------------------------------------------------------------------
