@@ -81,14 +81,12 @@ async def update_camera(
 ) -> ApiResponse:
     service = CameraService(session)
     audit = AuditService(session)
-    camera = await service.update(
-        camera_uuid,
-        camera_name=body.camera_name,
-        stream_url=body.stream_url,
-        status=body.status,
-        model_path=body.model_path,
-        roi=body.roi,
-    )
+
+    update_fields = {}
+    for field_name in body.model_fields_set:
+        update_fields[field_name] = getattr(body, field_name)
+
+    camera = await service.update(camera_uuid, **update_fields)
     await audit.log(action="camera.updated")
     return ApiResponse(
         success=True,

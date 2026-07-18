@@ -45,12 +45,12 @@ class CameraService:
     async def update(self, camera_uuid: uuid.UUID, **kwargs) -> Camera:
         camera = await self.get(camera_uuid)
         for key, value in kwargs.items():
-            if value is not None and hasattr(camera, key):
-                if key == "status":
+            if hasattr(camera, key):
+                if key == "status" and value is not None:
                     value = CameraStatus(value)
                 setattr(camera, key, value)
         await self._session.flush()
-        LOGGER.info("Camera updated: %s", camera_uuid)
+        LOGGER.info("Camera updated: %s (fields: %s)", camera_uuid, list(kwargs.keys()))
         return camera
 
     async def delete(self, camera_uuid: uuid.UUID) -> None:

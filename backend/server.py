@@ -50,11 +50,19 @@ app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(v1_router, prefix="/api/v1")
 
 
+import hashlib
+import json
 import requests
 import threading
 import time
 
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
+
+
+def _config_hash(config: dict) -> str:
+    keys = {"model_path", "roi", "source_type", "channel", "source", "detection_conf", "count_conf"}
+    snapshot = {k: config.get(k) for k in sorted(keys)}
+    return hashlib.md5(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
 
 def sync_cameras_loop():
     # Wait for both servers to be fully booted
@@ -119,13 +127,24 @@ def sync_cameras_loop():
                                 }
 
                             if cam_id in camera_manager._configs:
-                                health = camera_manager._health.get(cam_id, {})
-                                status = health.get("status", "")
-                                if status in ("dead", "stopped"):
-                                    LOGGER.info("VMS: Retrying dead camera %s (%s)", cam.get("camera_name"), cam_id)
+                                old_hash = camera_manager._configs[cam_id].get("_hash", "")
+                                new_hash = _config_hash(config)
+                                config["_hash"] = new_hash
+
+                                if new_hash != old_hash:
+                                    LOGGER.info("VMS: Config changed for %s (roi/model), restarting worker",
+                                                 cam.get("camera_name"))
                                     camera_manager.stop_camera(cam_id)
                                     camera_manager.start_camera(cam_id, config)
+                                else:
+                                    health = camera_manager._health.get(cam_id, {})
+                                    status = health.get("status", "")
+                                    if status in ("dead", "stopped"):
+                                        LOGGER.info("VMS: Retrying dead camera %s (%s)", cam.get("camera_name"), cam_id)
+                                        camera_manager.stop_camera(cam_id)
+                                        camera_manager.start_camera(cam_id, config)
                             else:
+                                config["_hash"] = _config_hash(config)
                                 LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
                                              cam.get("camera_name"), cam_id, config["source_type"])
                                 camera_manager.start_camera(cam_id, config)
