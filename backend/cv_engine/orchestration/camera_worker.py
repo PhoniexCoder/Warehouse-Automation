@@ -139,9 +139,9 @@ class CameraWorker:
                 scene=self._scene,
             )
         elif self._source_type == "dvrip":
-            go2rtc_url = os.getenv("GO2RTC_URL", "http://go2rtc:1984")
+            go2rtc_rtsp_host = os.getenv("GO2RTC_RTSP_HOST", "localhost")
             channel = self.config.get("channel", 0)
-            rtsp_url = f"rtsp://go2rtc:8554/ch{channel}"
+            rtsp_url = f"rtsp://{go2rtc_rtsp_host}:8554/ch{channel}"
             from go2rtc.video_stream import VideoStream
             self._frame_source = VideoStream(
                 rtsp_url,

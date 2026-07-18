@@ -106,7 +106,6 @@ class VideoStream:
         self._stop = threading.Event()
         self._reader_thread: Optional[threading.Thread] = None
         self._watchdog_thread: Optional[threading.Thread] = None
-        self._lock = threading.Lock()
         self._connected = False
 
         self._open_stream()
@@ -354,4 +353,5 @@ class Go2RTCManager:
 
     @property
     def api_url(self) -> str:
-        return "http://localhost:1476"
+        port = os.getenv("GO2RTC_API_PORT", "1984")
+        return f"http://localhost:{port}"

@@ -30,6 +30,18 @@ backend/data/
 backend/stream_cache/
 data/
 *.db
+stream_cache/
+
+# Binaries (download at deploy time, don't track in git)
+*.exe
+go2rtc/go2rtc
+mediamtx/
+
+# Large model files (use models/box_model.pt only)
+models/truck_detection/
+
+# Stress test logs
+backend/tests/stress_logs/
 
 # IDEs and editors
 .vscode/
