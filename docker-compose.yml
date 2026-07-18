@@ -47,12 +47,13 @@ services:
     image: alexxit/go2rtc:latest
     network_mode: host
     volumes:
-      - ./go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+      - ./go2rtc/entrypoint.sh:/entrypoint.sh:ro
     environment:
       NVR_HOST: ${NVR_HOST:-192.168.1.35}
       NVR_PORT: ${NVR_PORT:-34567}
       NVR_USER: ${NVR_USER:-uxdp}
       NVR_PASS: ${NVR_PASS:-cw8adc}
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     restart: unless-stopped
 
   cv-engine:
@@ -72,7 +73,7 @@ services:
       GO2RTC_RTSP_HOST: "host.docker.internal"
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
-      OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp|hwaccel;cuda"
+      OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp"
     volumes:
       - stream-cache:/app/backend/stream_cache
     deploy:

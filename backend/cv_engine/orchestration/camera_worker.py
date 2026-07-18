@@ -162,6 +162,12 @@ class CameraWorker:
             from go2rtc.video_stream import VideoStream
 
             for attempt in range(1, 11):
+                if self._frame_source is not None:
+                    try:
+                        self._frame_source.release()
+                    except Exception:
+                        pass
+                    self._frame_source = None
                 self._frame_source = VideoStream(
                     rtsp_url,
                     buffer_size=30,

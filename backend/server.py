@@ -80,9 +80,10 @@ def sync_cameras_loop():
                                 continue
 
                             if stream_url.startswith("dvrip://"):
-                                from urllib.parse import urlparse
+                                from urllib.parse import urlparse, parse_qs
                                 parsed = urlparse(stream_url)
-                                channel = int(parsed.path.lstrip("/")) if parsed.path else 0
+                                params = parse_qs(parsed.query)
+                                channel = int(params.get("channel", ["0"])[0])
                                 if channel > 8:
                                     LOGGER.debug("VMS: Skipping %s ch%d (go2rtc only has ch0-ch8)", cam.get("camera_name"), channel)
                                     continue
