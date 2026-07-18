@@ -69,6 +69,9 @@ services:
       PORT: "8000"
       GO2RTC_URL: "http://host.docker.internal:1984"
       GO2RTC_RTSP_HOST: "host.docker.internal"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
+      OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp|hwaccel;cuda"
     volumes:
       - stream-cache:/app/backend/stream_cache
     deploy:

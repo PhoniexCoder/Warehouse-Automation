@@ -111,7 +111,8 @@ class CameraManager:
         stop_event: Any,
     ) -> None:
         import os
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+        if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
         worker = CameraWorker(camera_id, config, event_queue, health, stop_event)
         worker.run()
 
