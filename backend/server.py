@@ -6,7 +6,10 @@ if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
 
 import asyncio
 import logging
+import multiprocessing
 import sys
+
+multiprocessing.set_start_method("spawn", force=True)
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
