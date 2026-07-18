@@ -91,6 +91,8 @@ def sync_cameras_loop():
                                     "frame_skip": 2,
                                     "model_path": cam_model_path,
                                     "roi": cam_roi,
+                                    "detection_conf": 0.55,
+                                    "count_conf": 0.65,
                                 }
                             else:
                                 config = {
@@ -102,6 +104,8 @@ def sync_cameras_loop():
                                     "frame_skip": 2,
                                     "model_path": cam_model_path,
                                     "roi": cam_roi,
+                                    "detection_conf": 0.55,
+                                    "count_conf": 0.65,
                                 }
                             LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
                                          cam["camera_name"], cam_id, config["source_type"])

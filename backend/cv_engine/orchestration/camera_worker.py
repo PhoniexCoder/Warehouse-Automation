@@ -56,8 +56,10 @@ class CameraWorker:
         self._tracker: Optional[ObjectTracker] = None
         self._counter: Optional[LineCounter] = None
         self._duplicate_guard: Optional[DuplicateGuard] = None
-        self._seen_tracks = set()
+        self._seen_tracks: set = set()
         self._detector: Any = None
+        self._detection_conf = float(config.get("detection_conf", 0.55))
+        self._count_conf = float(config.get("count_conf", 0.65))
 
     def run(self) -> None:
         LOGGER.info("[%s] Worker starting (source=%s, scene=%s, line_y=%d)",
@@ -119,7 +121,19 @@ class CameraWorker:
                         self._report_health("running", {
                             "frames": frame_count,
                             "counted": self._counter.total_count if self._counter else 0,
+                            "vis_boxes": len(vis_boxes),
+                            "events": len(events),
+                            "seen_tracks": len(self._seen_tracks),
                         })
+                        LOGGER.info("[%s] frame=%d vis_boxes=%d events=%d counted=%d seen=%d",
+                                    self.camera_id, frame_count, len(vis_boxes), len(events),
+                                    self._counter.total_count if self._counter else 0,
+                                    len(self._seen_tracks))
+
+                    if frame_count % 600 == 0 and self._seen_tracks:
+                        old = len(self._seen_tracks)
+                        self._seen_tracks.clear()
+                        LOGGER.info("[%s] Cleared _seen_tracks (%d -> 0)", self.camera_id, old)
 
                     elapsed = time.time() - frame_start
                     sleep_time = max(0.0, self._frame_interval - elapsed)
@@ -166,7 +180,7 @@ class CameraWorker:
                 pass
             self._detector = BoxDetector(
                 model_path=self.config.get("model_path"),
-                conf_threshold=self.config.get("conf", 0.5),
+                conf_threshold=self._detection_conf,
                 device=device,
                 input_size=self.config.get("input_size", 640),
             )
@@ -274,49 +288,50 @@ class CameraWorker:
         vis_boxes: list[dict] = []
 
         for obj in tracked:
+            bbox = obj.get("bbox") or obj.get("bbox_xyxy")
+            if not bbox or len(bbox) != 4:
+                continue
+            x1, y1, x2, y2 = bbox
+            conf = obj.get("confidence", 0)
+
             tid = obj.get("track_id")
+            is_new = False
             if tid is not None:
-                if tid in self._seen_tracks:
-                    continue
-                self._seen_tracks.add(tid)
+                if tid not in self._seen_tracks:
+                    is_new = True
+                    self._seen_tracks.add(tid)
             else:
                 tid = f"{self.camera_id}-det-{len(self._seen_tracks)}"
+                is_new = True
                 self._seen_tracks.add(tid)
 
-            if self._counter:
-                self._counter.total_count += 1
-
-            bbox = obj.get("bbox") or obj.get("bbox_xyxy")
-            if bbox:
-                if len(bbox) == 4:
-                    x1, y1, x2, y2 = bbox
-                else:
-                    continue
-            else:
-                continue
-
+            label = f"#{tid}" if isinstance(tid, int) else str(tid)
             vis_boxes.append({
                 "x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2),
-                "label": f"#{tid}",
-                "confidence": obj.get("confidence", 0),
+                "label": label,
+                "confidence": conf,
             })
 
-            base = {
-                "camera_id": self.camera_id,
-                "tracking_id": tid,
-                "timestamp": ts,
-                "type": _EVENT_TYPE_DETECTION,
-                "qr_data": f"CRAX-BOX-{tid}",
-                "box": {
-                    "x": x1,
-                    "y": y1,
-                    "width": x2 - x1,
-                    "height": y2 - y1,
-                },
-                "confidence": obj.get("confidence", 0),
-                "class": obj.get("class", "box"),
-            }
-            events.append(base)
+            if is_new and conf >= self._count_conf:
+                if self._counter:
+                    self._counter.total_count += 1
+
+                base = {
+                    "camera_id": self.camera_id,
+                    "tracking_id": tid,
+                    "timestamp": ts,
+                    "type": _EVENT_TYPE_DETECTION,
+                    "qr_data": f"CRAX-BOX-{tid}",
+                    "box": {
+                        "x": x1,
+                        "y": y1,
+                        "width": x2 - x1,
+                        "height": y2 - y1,
+                    },
+                    "confidence": conf,
+                    "class": obj.get("class", "box"),
+                }
+                events.append(base)
 
         return events, vis_boxes
 
