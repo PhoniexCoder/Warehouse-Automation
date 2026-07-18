@@ -91,6 +91,7 @@ services:
       - "3000:3000"
     environment:
       NEXTAUTH_URL: "http://localhost:3000"
+      BACKEND_URL: "http://business:8001"
     depends_on:
       business:
         condition: service_healthy
