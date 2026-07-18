@@ -206,13 +206,21 @@ class VideoStream:
 
     def _reader_loop(self) -> None:
         """Continuously read frames from cv2.VideoCapture into the queue."""
+        consecutive_failures = 0
+        max_consecutive_failures = 30
         while not self._stop.is_set():
             if not self._cap or not self._cap.isOpened():
                 break
             ret, frame = self._cap.read()
             if not ret or frame is None:
-                LOGGER.warning("Stream read failed: %s", self._url)
-                break
+                consecutive_failures += 1
+                if consecutive_failures >= max_consecutive_failures:
+                    LOGGER.warning("Stream read failed %d times: %s", consecutive_failures, self._url)
+                    break
+                time.sleep(0.05)
+                continue
+
+            consecutive_failures = 0
 
             # Drop old frames if queue is full
             if self._frame_queue.full():
