@@ -38,8 +38,8 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={clsx("relative w-full bg-white rounded-2xl shadow-xl border border-slate-200/50", sizeClass[size])}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className={clsx("relative w-full bg-white rounded-2xl shadow-xl border border-slate-200/50 flex flex-col max-h-[90vh]", sizeClass[size])}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
           <button
             onClick={onClose}
@@ -50,7 +50,7 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
             </svg>
           </button>
         </div>
-        <div className="px-6 py-4">{children}</div>
+        <div className="px-6 py-4 overflow-y-auto flex-1">{children}</div>
       </div>
     </div>
   )
