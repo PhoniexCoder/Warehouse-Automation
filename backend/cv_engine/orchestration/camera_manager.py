@@ -12,6 +12,7 @@ LOGGER = logging.getLogger(__name__)
 _MONITOR_INTERVAL = 2.0
 _HEALTH_STALE_SECONDS = 45.0
 _EVENT_QUEUE_MAXSIZE = 10000
+_RESTART_BACKOFF = 15.0
 
 
 class CameraManager:
@@ -25,6 +26,8 @@ class CameraManager:
         self._monitor_thread: Optional[threading.Thread] = None
         self._consumer: Optional[EventConsumer] = None
         self._running = False
+        self._restart_backoff: dict[str, float] = {}
+        self._dead_cameras: set[str] = set()
 
     @property
     def event_queue(self) -> Optional[multiprocessing.Queue]:
@@ -34,6 +37,8 @@ class CameraManager:
         if camera_id in self._configs:
             LOGGER.warning("Camera %s already configured, overwriting", camera_id)
         self._configs[camera_id] = config
+        self._dead_cameras.discard(camera_id)
+        self._restart_backoff.pop(camera_id, None)
         LOGGER.info("Camera added: %s (scene=%s, line_y=%d)",
                      camera_id, config.get("sim_scene", "?"), config.get("line_y", 400))
 
@@ -119,11 +124,29 @@ class CameraManager:
                     worker = self._workers.get(camera_id)
 
                     if worker is None or not worker.is_alive():
+                        if camera_id in self._dead_cameras:
+                            continue
+
+                        try:
+                            entry = self._health.get(camera_id) if self._health else None
+                            if entry and entry.get("status") == "dead":
+                                LOGGER.warning("[%s] Worker dead (init_failed), not restarting", camera_id)
+                                self._dead_cameras.add(camera_id)
+                                self._workers.pop(camera_id, None)
+                                continue
+                        except Exception:
+                            pass
+
+                        backoff = self._restart_backoff.get(camera_id, 0)
+                        if now < backoff:
+                            continue
+
                         LOGGER.warning("[%s] Worker dead, restarting", camera_id)
                         self._workers.pop(camera_id, None)
                         cfg = self._configs.get(camera_id)
                         if cfg:
                             self._start_worker(camera_id, cfg)
+                            self._restart_backoff[camera_id] = now + _RESTART_BACKOFF
                         continue
 
                     self._check_health_staleness(camera_id, now)
