@@ -86,6 +86,12 @@ class CameraWorker:
 
                     ret, frame, pre_dets = self._read_frame()
 
+                    if ret and frame is not None:
+                        if frame.mean() < 2.0:
+                            LOGGER.warning("[%s] Black frame / video loss detected", self.camera_id)
+                            ret = False
+                            frame = None
+
                     if not ret or frame is None:
                         self._consecutive_errors += 1
                         if self._consecutive_errors > _RECONNECT_MAX_ATTEMPTS:
