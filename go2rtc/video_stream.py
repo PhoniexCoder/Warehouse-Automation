@@ -135,9 +135,12 @@ class _FFmpegGPUReader:
         if not self._proc or self._proc.poll() is not None:
             return False, None
         try:
-            raw = self._proc.stdout.read(self._frame_size)
-            if raw is None or len(raw) < self._frame_size:
-                return False, None
+            raw = b""
+            while len(raw) < self._frame_size:
+                chunk = self._proc.stdout.read(self._frame_size - len(raw))
+                if not chunk:
+                    return False, None
+                raw += chunk
             frame = np.frombuffer(raw, dtype=np.uint8).reshape(self._height, self._width, 3)
             return True, frame
         except Exception:
