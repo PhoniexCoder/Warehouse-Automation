@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useEffect, useState, useCallback } from "react"
+import { useRef, useEffect, useState } from "react"
 
 interface RoiOverlayProps {
   mjpegUrl: string
@@ -12,46 +12,49 @@ interface RoiOverlayProps {
 export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const [points, setPoints] = useState<{ x: number; y: number }[]>([])
-  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null)
+  const pointsRef = useRef<{ x: number; y: number }[]>([])
+  const hoverRef = useRef<{ x: number; y: number } | null>(null)
+  const drawingRef = useRef(drawing)
+  const [, forceRender] = useState(0)
 
   useEffect(() => {
-    setPoints(roi || [])
+    pointsRef.current = roi || []
+    forceRender((n) => n + 1)
   }, [roi])
 
   useEffect(() => {
+    drawingRef.current = drawing
+  }, [drawing])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
     let raf: number
 
-    function tick() {
-      const canvas = canvasRef.current
-      const img = imgRef.current
-      const container = containerRef.current
-      if (!canvas || !img || !container) {
-        raf = requestAnimationFrame(tick)
-        return
-      }
-
+    const tick = () => {
       const cw = container.clientWidth
       const ch = container.clientHeight
-      if (cw === 0 || ch === 0) {
-        raf = requestAnimationFrame(tick)
-        return
-      }
 
-      canvas.width = cw
-      canvas.height = ch
+      if (cw > 0 && ch > 0 && (canvas.width !== cw || canvas.height !== ch)) {
+        canvas.width = cw
+        canvas.height = ch
+      }
 
       const ctx = canvas.getContext("2d")
-      if (!ctx) {
+      if (!ctx || canvas.width === 0 || canvas.height === 0) {
         raf = requestAnimationFrame(tick)
         return
       }
 
-      ctx.clearRect(0, 0, cw, ch)
+      const w = canvas.width
+      const h = canvas.height
+      ctx.clearRect(0, 0, w, h)
 
-      if (points.length > 0) {
-        const cx = points.map((p) => ({ x: p.x * cw, y: p.y * ch }))
+      const pts = pointsRef.current
+      if (pts.length > 0) {
+        const cx = pts.map((p) => ({ x: p.x * w, y: p.y * h }))
 
         ctx.beginPath()
         ctx.moveTo(cx[0].x, cx[0].y)
@@ -60,10 +63,10 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
         }
         if (cx.length > 2) {
           ctx.closePath()
-          ctx.fillStyle = "rgba(34, 197, 94, 0.15)"
+          ctx.fillStyle = "rgba(34, 197, 94, 0.2)"
           ctx.fill()
         }
-        ctx.strokeStyle = "rgba(34, 197, 94, 0.8)"
+        ctx.strokeStyle = "rgba(34, 197, 94, 0.9)"
         ctx.lineWidth = 2
         ctx.stroke()
 
@@ -77,12 +80,12 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
           ctx.stroke()
         }
 
-        if (hoverPoint) {
-          const hx = hoverPoint.x * cw
-          const hy = hoverPoint.y * ch
+        const hp = hoverRef.current
+        if (hp) {
+          const last = cx[cx.length - 1]
           ctx.beginPath()
-          ctx.moveTo(cx[cx.length - 1].x, cx[cx.length - 1].y)
-          ctx.lineTo(hx, hy)
+          ctx.moveTo(last.x, last.y)
+          ctx.lineTo(hp.x * w, hp.y * h)
           ctx.strokeStyle = "rgba(34, 197, 94, 0.5)"
           ctx.lineWidth = 1.5
           ctx.setLineDash([5, 5])
@@ -91,54 +94,75 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
         }
       }
 
+      if (drawingRef.current && canvas.style.cursor !== "crosshair") {
+        canvas.style.cursor = "crosshair"
+      } else if (!drawingRef.current && canvas.style.cursor !== "default") {
+        canvas.style.cursor = "default"
+      }
+
       raf = requestAnimationFrame(tick)
     }
 
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [points, hoverPoint])
+  }, [])
 
-  const getRelativePos = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return { x: 0, y: 0 }
+  function getPos(e: React.MouseEvent<HTMLCanvasElement>): { x: number; y: number } {
+    const rect = canvasRef.current!.getBoundingClientRect()
     return {
-      x: (e.clientX - rect.left) / rect.width,
-      y: (e.clientY - rect.top) / rect.height,
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
     }
   }
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!drawing) return
-    setPoints((prev) => [...prev, getRelativePos(e)])
+  function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return
+    const pos = getPos(e)
+    pointsRef.current = [...pointsRef.current, pos]
+    forceRender((n) => n + 1)
   }
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!drawing || points.length === 0) return
-    setHoverPoint(getRelativePos(e))
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current || pointsRef.current.length === 0) return
+    hoverRef.current = getPos(e)
   }
 
-  const handleDoubleClick = () => {
-    if (!drawing || points.length < 3) return
-    setHoverPoint(null)
-    onRoiChange(points)
+  function handleDoubleClick() {
+    if (!drawingRef.current || pointsRef.current.length < 3) return
+    hoverRef.current = null
+    onRoiChange([...pointsRef.current])
   }
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-black">
+    <div
+      ref={containerRef}
+      style={{ position: "relative", width: "100%", height: "100%", minHeight: 200, background: "#000" }}
+    >
       <img
-        ref={imgRef}
         src={mjpegUrl}
         alt="Camera preview"
-        className="w-full h-full object-contain"
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          pointerEvents: "none",
+        }}
       />
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ cursor: drawing ? "crosshair" : "default" }}
         onClick={handleClick}
         onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverPoint(null)}
+        onMouseLeave={() => { hoverRef.current = null }}
         onDoubleClick={handleDoubleClick}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          zIndex: 10,
+        }}
       />
     </div>
   )
