@@ -10,7 +10,6 @@ interface RoiOverlayProps {
 }
 
 export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const [points, setPoints] = useState<{ x: number; y: number }[]>([])
@@ -19,23 +18,6 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
   useEffect(() => {
     setPoints(roi || [])
   }, [roi])
-
-  const imgToCanvas = useCallback((imgX: number, imgY: number, imgW: number, imgH: number) => {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    const scaleX = canvas.width / imgW
-    const scaleY = canvas.height / imgH
-    return { x: imgX * scaleX, y: imgY * scaleY }
-  }, [])
-
-  const canvasToImg = useCallback((canvasX: number, canvasY: number) => {
-    const canvas = canvasRef.current
-    const img = imgRef.current
-    if (!canvas || !img || !img.naturalWidth || !img.naturalHeight) return { x: 0, y: 0 }
-    const scaleX = img.naturalWidth / canvas.width
-    const scaleY = img.naturalHeight / canvas.height
-    return { x: canvasX * scaleX, y: canvasY * scaleY }
-  }, [])
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -52,19 +34,17 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
 
     if (points.length === 0) return
 
-    const canvasPoints = points.map((p) =>
-      imgToCanvas(p.x, p.naturalWidth || p.x, p.y, p.naturalHeight || p.y)
-    ).map((cp, i) => ({
-      x: (points[i].x) * canvas.width,
-      y: (points[i].y) * canvas.height,
+    const cx = points.map((p) => ({
+      x: p.x * canvas.width,
+      y: p.y * canvas.height,
     }))
 
     ctx.beginPath()
-    ctx.moveTo(canvasPoints[0].x, canvasPoints[0].y)
-    for (let i = 1; i < canvasPoints.length; i++) {
-      ctx.lineTo(canvasPoints[i].x, canvasPoints[i].y)
+    ctx.moveTo(cx[0].x, cx[0].y)
+    for (let i = 1; i < cx.length; i++) {
+      ctx.lineTo(cx[i].x, cx[i].y)
     }
-    if (canvasPoints.length > 2) {
+    if (cx.length > 2) {
       ctx.closePath()
       ctx.fillStyle = "rgba(34, 197, 94, 0.15)"
       ctx.fill()
@@ -73,9 +53,9 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
     ctx.lineWidth = 2
     ctx.stroke()
 
-    for (const cp of canvasPoints) {
+    for (const p of cx) {
       ctx.beginPath()
-      ctx.arc(cp.x, cp.y, 4, 0, Math.PI * 2)
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2)
       ctx.fillStyle = "#22c55e"
       ctx.fill()
       ctx.strokeStyle = "#fff"
@@ -83,11 +63,11 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
       ctx.stroke()
     }
 
-    if (hoverPoint && points.length > 0) {
+    if (hoverPoint && cx.length > 0) {
       const hx = hoverPoint.x * canvas.width
       const hy = hoverPoint.y * canvas.height
       ctx.beginPath()
-      ctx.moveTo(canvasPoints[canvasPoints.length - 1].x, canvasPoints[canvasPoints.length - 1].y)
+      ctx.moveTo(cx[cx.length - 1].x, cx[cx.length - 1].y)
       ctx.lineTo(hx, hy)
       ctx.strokeStyle = "rgba(34, 197, 94, 0.4)"
       ctx.lineWidth = 1
@@ -95,7 +75,7 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
       ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [points, hoverPoint, imgToCanvas])
+  }, [points, hoverPoint])
 
   useEffect(() => {
     const img = new Image()
@@ -135,14 +115,14 @@ export function RoiOverlay({ mjpegUrl, roi, onRoiChange, drawing }: RoiOverlayPr
     setHoverPoint(getRelativePos(e))
   }
 
-  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleDoubleClick = () => {
     if (!drawing || points.length < 3) return
     setHoverPoint(null)
     onRoiChange(points)
   }
 
   return (
-    <div ref={containerRef} className="relative w-full h-full">
+    <div className="relative w-full h-full">
       <img
         src={mjpegUrl}
         alt="Camera preview"
