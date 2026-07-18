@@ -160,15 +160,22 @@ class CameraWorker:
             channel = self.config.get("channel", 0)
             rtsp_url = f"rtsp://{go2rtc_rtsp_host}:8554/ch{channel}"
             from go2rtc.video_stream import VideoStream
-            self._frame_source = VideoStream(
-                rtsp_url,
-                buffer_size=30,
-                enable_watchdog=True,
-                max_reconnect_attempts=0,
-                watchdog_timeout=10.0,
-            )
-            if not self._frame_source.is_open():
-                raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url}")
+
+            for attempt in range(1, 11):
+                self._frame_source = VideoStream(
+                    rtsp_url,
+                    buffer_size=30,
+                    enable_watchdog=True,
+                    max_reconnect_attempts=0,
+                    watchdog_timeout=10.0,
+                )
+                if self._frame_source.is_open():
+                    break
+                LOGGER.warning("[%s] RTSP connect attempt %d/10 failed for %s, retry in 3s...",
+                               self.camera_id, attempt, rtsp_url)
+                self._sleep(3.0)
+            else:
+                raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url} after 10 attempts")
             model_path = self.config.get("model_path")
             if model_path:
                 from cv_engine.services.detector import BoxDetector

@@ -58,7 +58,7 @@ BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001"
 
 def sync_cameras_loop():
     # Wait for both servers to be fully booted
-    time.sleep(3)
+    time.sleep(5)
     LOGGER.info("VMS Sync loop started")
     while True:
         try:
@@ -71,26 +71,30 @@ def sync_cameras_loop():
                     active_ids = set()
                     
                     for cam in active_cameras:
-                        cam_id = cam["id"] # Database UUID!
-                        active_ids.add(cam_id)
-                        
-                        if cam_id not in camera_manager._configs:
-                            stream_url = cam["stream_url"]
-                            cam_model_path = cam.get("model_path") or ""
-                            cam_roi = cam.get("roi")
+                        try:
+                            cam_id = cam["id"]
+                            stream_url = cam.get("stream_url", "")
+                            active_ids.add(cam_id)
+
+                            if not stream_url:
+                                continue
+
                             if stream_url.startswith("dvrip://"):
                                 from urllib.parse import urlparse
                                 parsed = urlparse(stream_url)
                                 channel = int(parsed.path.lstrip("/")) if parsed.path else 0
+                                if channel > 8:
+                                    LOGGER.debug("VMS: Skipping %s ch%d (go2rtc only has ch0-ch8)", cam.get("camera_name"), channel)
+                                    continue
                                 config = {
                                     "source_type": "dvrip",
                                     "channel": channel,
                                     "line_y": 500,
-                                    "display_name": cam["camera_name"],
+                                    "display_name": cam.get("camera_name", ""),
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": cam_model_path,
-                                    "roi": cam_roi,
+                                    "model_path": cam.get("model_path") or "",
+                                    "roi": cam.get("roi"),
                                     "detection_conf": 0.55,
                                     "count_conf": 0.65,
                                 }
@@ -99,26 +103,36 @@ def sync_cameras_loop():
                                     "source_type": "rtsp",
                                     "source": stream_url,
                                     "line_y": 500,
-                                    "display_name": cam["camera_name"],
+                                    "display_name": cam.get("camera_name", ""),
                                     "target_fps": 5,
                                     "frame_skip": 2,
-                                    "model_path": cam_model_path,
-                                    "roi": cam_roi,
+                                    "model_path": cam.get("model_path") or "",
+                                    "roi": cam.get("roi"),
                                     "detection_conf": 0.55,
                                     "count_conf": 0.65,
                                 }
-                            LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
-                                         cam["camera_name"], cam_id, config["source_type"])
-                            camera_manager.start_camera(cam_id, config)
+
+                            if cam_id in camera_manager._configs:
+                                health = camera_manager._health.get(cam_id, {})
+                                status = health.get("status", "")
+                                if status in ("dead", "stopped"):
+                                    LOGGER.info("VMS: Retrying dead camera %s (%s)", cam.get("camera_name"), cam_id)
+                                    camera_manager.stop_camera(cam_id)
+                                    camera_manager.start_camera(cam_id, config)
+                            else:
+                                LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
+                                             cam.get("camera_name"), cam_id, config["source_type"])
+                                camera_manager.start_camera(cam_id, config)
+                        except Exception:
+                            LOGGER.exception("VMS: Failed to start worker for camera %s", cam.get("id", "?"))
                     
-                    # Stop workers that are no longer active
                     configured_ids = list(camera_manager._configs.keys())
                     for c_id in configured_ids:
                         if c_id not in active_ids:
                             LOGGER.info("VMS: Stopping camera worker for %s", c_id)
                             camera_manager.stop_camera(c_id)
         except Exception:
-            pass
+            LOGGER.exception("VMS: Sync loop error")
         time.sleep(10)
 
 

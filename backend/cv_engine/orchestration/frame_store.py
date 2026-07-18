@@ -7,8 +7,8 @@ import numpy as np
 
 class FrameStore:
     def __init__(self, cache_dir: str = "stream_cache") -> None:
-        self._cache_dir = cache_dir
-        os.makedirs(cache_dir, exist_ok=True)
+        self._cache_dir = os.path.abspath(cache_dir)
+        os.makedirs(self._cache_dir, exist_ok=True)
 
     def publish(self, camera_id: str, frame: np.ndarray, quality: int = 80) -> None:
         _, buffer = cv2.imencode(
