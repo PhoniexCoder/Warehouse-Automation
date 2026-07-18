@@ -83,7 +83,12 @@ def sync_cameras_loop():
                                 from urllib.parse import urlparse, parse_qs
                                 parsed = urlparse(stream_url)
                                 params = parse_qs(parsed.query)
-                                channel = int(params.get("channel", ["0"])[0])
+                                if "channel" in params:
+                                    channel = int(params["channel"][0])
+                                elif parsed.path:
+                                    channel = int(parsed.path.strip("/"))
+                                else:
+                                    channel = 0
                                 if channel > 8:
                                     LOGGER.debug("VMS: Skipping %s ch%d (go2rtc only has ch0-ch8)", cam.get("camera_name"), channel)
                                     continue
