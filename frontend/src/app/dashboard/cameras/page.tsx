@@ -477,21 +477,22 @@ export default function CamerasPage() {
             </div>
           )}
 
-          {models.length > 0 && (
-            <div>
+          <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">ML Model</label>
               <select
                 value={selectedModel || ""}
                 onChange={(e) => setSelectedModel(e.target.value || null)}
                 className="input-field"
               >
-                <option value="">Default (box_model.pt)</option>
+                <option value="">No model (stream only)</option>
                 {models.map((m) => (
                   <option key={m.path} value={m.path}>{m.name}</option>
                 ))}
               </select>
+              {models.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">No .pt files found in models/ directory</p>
+              )}
             </div>
-          )}
 
           {editing && (
             <div>

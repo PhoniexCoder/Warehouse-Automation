@@ -247,9 +247,7 @@ MODEL_DIRS = [
 
 
 @router.get("/models", summary="List available ML model files")
-async def list_models(
-    _any: User = Depends(require_any),
-) -> ApiResponse:
+async def list_models() -> ApiResponse:
     models = []
     seen = set()
     for d in MODEL_DIRS:
