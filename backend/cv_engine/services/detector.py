@@ -32,7 +32,11 @@ class BoxDetector:
         if not resolved.is_absolute():
             resolved = (Path.cwd() / resolved).resolve()
         if not resolved.exists():
-            raise BoxDetectorError(f"Model file not found: {resolved}")
+            alt = Path("/app/models") / Path(model_path).name
+            if alt.exists():
+                resolved = alt
+            else:
+                raise BoxDetectorError(f"Model file not found: {resolved}")
         self._model_path = str(resolved)
         LOGGER.info("Loading YOLO model from %s", self._model_path)
         self._model = YOLO(self._model_path)

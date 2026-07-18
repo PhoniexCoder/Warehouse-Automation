@@ -254,11 +254,11 @@ async def list_models() -> ApiResponse:
         if not d.is_dir():
             continue
         for pt in sorted(d.glob("*.pt")):
-            rel = str(pt)
-            if rel not in seen:
-                seen.add(rel)
+            resolved = str(pt.resolve())
+            if resolved not in seen:
+                seen.add(resolved)
                 models.append({
-                    "path": rel,
+                    "path": resolved,
                     "name": pt.stem,
                     "size_bytes": pt.stat().st_size,
                 })
