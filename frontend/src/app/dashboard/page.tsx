@@ -68,13 +68,16 @@ export default function DashboardPage() {
 
     for (let r = 0; r < rows; r++) {
       const row: number[] = []
-      const targetCamId = `cam_${r + 1}`
+      const camera = cameras[r]
+      const targetCamId = camera?.id
       
       for (let c = 0; c < cols; c++) {
-        // Count real scans in the database for camera matching 'cam_{r+1}' in Month c
+        // Count real scans in the database for the actual camera ID, or fallback to 'cam_{r+1}'
         const matchingScans = countLogs.filter((log) => {
           const logDate = new Date(log.timestamp)
-          const isTargetCam = log.camera_id.toLowerCase().includes(targetCamId)
+          const isTargetCam = targetCamId
+            ? log.camera_id === targetCamId
+            : log.camera_id.toLowerCase().includes(`cam_${r + 1}`)
           const isTargetMonth = logDate.getMonth() === c && logDate.getFullYear() === currentYear
           return isTargetCam && isTargetMonth
         }).length
@@ -101,7 +104,7 @@ export default function DashboardPage() {
       matrix.push(row)
     }
     setGridData(matrix)
-  }, [countLogs, analyticFilter])
+  }, [cameras, countLogs, analyticFilter])
 
   if (loading) return <Spinner />
 
@@ -144,6 +147,10 @@ export default function DashboardPage() {
   const processedLineTotal = latestLog
     ? countLogs.filter((l) => l.camera_id === latestLog.camera_id).length
     : 0
+
+  const getCameraName = (id: string) => {
+    return cameras.find((c) => c.id === id)?.camera_name || id
+  }
 
   const severityBadge = (movementType: string) => {
     if (movementType === "ENTRY") return <Badge variant="success">Verified</Badge>
@@ -406,7 +413,7 @@ export default function DashboardPage() {
                 <div className="space-y-3.5 text-xs font-semibold px-1 text-left">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Conveyor Location:</span>
-                    <span className="text-slate-800 font-bold">{latestLog.camera_id}</span>
+                    <span className="text-slate-800 font-bold">{getCameraName(latestLog.camera_id)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Scan Timestamp:</span>
@@ -487,7 +494,7 @@ export default function DashboardPage() {
               <div className="min-w-0">
                 <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Terminal Site</p>
                 <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
-                  {latestLog ? `CRAX Plant - ${latestLog.camera_id}` : "CRAX Dispatch Center"}
+                  {latestLog ? `CRAX Plant - ${getCameraName(latestLog.camera_id)}` : "CRAX Dispatch Center"}
                 </p>
               </div>
             </div>
@@ -549,7 +556,7 @@ export default function DashboardPage() {
                     }
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">24 Packs / Case</td>
-                  <td className="px-4 py-3 text-xs">{log.camera_id}</td>
+                  <td className="px-4 py-3 text-xs">{getCameraName(log.camera_id)}</td>
                   <td className="px-4 py-3 text-xs font-mono">
                     {format(new Date(log.timestamp), "d MMM yyyy, HH:mm")}
                   </td>

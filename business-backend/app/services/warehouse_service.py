@@ -41,6 +41,15 @@ class WarehouseService:
         await self._session.flush()
         LOGGER.info("Warehouse deleted: %s", warehouse_id)
 
+    async def update(self, warehouse_id: uuid.UUID, **kwargs) -> Warehouse:
+        warehouse = await self.get(warehouse_id)
+        for key, value in kwargs.items():
+            if hasattr(warehouse, key) and value is not None:
+                setattr(warehouse, key, value)
+        await self._session.flush()
+        LOGGER.info("Warehouse updated: %s (fields: %s)", warehouse_id, list(kwargs.keys()))
+        return warehouse
+
     async def _get_by_name(self, name: str) -> Warehouse | None:
         stmt = select(Warehouse).where(Warehouse.name == name)
         result = await self._session.execute(stmt)

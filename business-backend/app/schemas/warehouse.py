@@ -9,6 +9,11 @@ class WarehouseCreate(BaseModel):
     location: str = Field(..., min_length=1, max_length=500, examples=["123 Industrial Blvd"])
 
 
+class WarehouseUpdate(BaseModel):
+    name: str | None = None
+    location: str | None = None
+
+
 class WarehouseResponse(BaseModel):
     id: uuid.UUID
     name: str

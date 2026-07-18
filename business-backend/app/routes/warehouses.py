@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
 from app.schemas.common import ApiResponse
-from app.schemas.warehouse import WarehouseCreate, WarehouseResponse
+from app.schemas.warehouse import WarehouseCreate, WarehouseUpdate, WarehouseResponse
 from app.services.warehouse_service import WarehouseService
 from app.services.audit_service import AuditService
 from app.auth.permissions import require_admin, require_manager_up
@@ -71,3 +71,27 @@ async def delete_warehouse(
     await service.delete(warehouse_id)
     await audit.log(action="warehouse.deleted")
     return ApiResponse(success=True, data={"deleted": True})
+
+
+@router.put("/warehouses/{warehouse_id}", summary="Update a warehouse")
+async def update_warehouse(
+    warehouse_id: uuid.UUID,
+    body: WarehouseUpdate,
+    _admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse:
+    service = WarehouseService(session)
+    audit = AuditService(session)
+
+    update_fields = {}
+    for field_name in body.model_fields_set:
+        val = getattr(body, field_name)
+        if val is not None:
+            update_fields[field_name] = val
+
+    warehouse = await service.update(warehouse_id, **update_fields)
+    await audit.log(action="warehouse.updated")
+    return ApiResponse(
+        success=True,
+        data=WarehouseResponse.model_validate(warehouse).model_dump(mode="json"),
+    )

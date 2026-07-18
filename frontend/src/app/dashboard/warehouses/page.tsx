@@ -51,8 +51,7 @@ export default function WarehousesPage() {
     setSaving(true)
     try {
       if (editing) {
-        await api.deleteWarehouse(editing.id)
-        await api.createWarehouse({ name, location })
+        await api.updateWarehouse(editing.id, { name, location })
       } else {
         await api.createWarehouse({ name, location })
       }

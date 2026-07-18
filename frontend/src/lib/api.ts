@@ -130,6 +130,10 @@ export const api = {
   deleteWarehouse: async (id: string): Promise<void> => {
     await client.delete(`/warehouses/${id}`)
   },
+  updateWarehouse: async (id: string, data: { name?: string; location?: string }): Promise<Warehouse> => {
+    const res = await client.put<ApiResponse>(`/warehouses/${id}`, data)
+    return res.data.data as Warehouse
+  },
 
   // Cameras
   getCameras: async (): Promise<Camera[]> => {
