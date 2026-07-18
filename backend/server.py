@@ -72,11 +72,16 @@ def sync_cameras_loop():
                     
                     for cam in active_cameras:
                         cam_id = cam["id"] # Database UUID!
+                        cam_model_path = cam.get("model_path")
+                        if not cam_model_path:
+                            if cam_id in camera_manager._configs:
+                                LOGGER.info("VMS: Stopping worker for %s (no model selected)", cam_id)
+                                camera_manager.stop_camera(cam_id)
+                            continue
                         active_ids.add(cam_id)
                         
                         if cam_id not in camera_manager._configs:
                             stream_url = cam["stream_url"]
-                            cam_model_path = cam.get("model_path") or os.getenv("MODEL_PATH", "models/box_model.pt")
                             cam_roi = cam.get("roi")
                             if stream_url.startswith("dvrip://"):
                                 from urllib.parse import urlparse
