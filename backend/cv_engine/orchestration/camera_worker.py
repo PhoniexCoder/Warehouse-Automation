@@ -106,9 +106,10 @@ class CameraWorker:
                     self._consecutive_errors = 0
                     frame_count += 1
 
-                    events = self._process_frame(frame, pre_dets)
+                    events, vis_boxes = self._process_frame(frame, pre_dets)
                     try:
-                        self._publish_frame(frame)
+                        vis_frame = self._draw_overlays(frame, vis_boxes)
+                        self._publish_frame(vis_frame)
                     except Exception:
                         LOGGER.exception("[%s] Frame publish failed", self.camera_id)
                     for event in events:
@@ -245,7 +246,7 @@ class CameraWorker:
         masked = cv2.bitwise_and(frame, frame, mask=self._roi_mask)
         return masked
 
-    def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> list[dict]:
+    def _process_frame(self, frame: np.ndarray, pre_dets: Optional[list[dict]]) -> tuple[list[dict], list[dict]]:
         detect_frame = self._apply_roi(frame) if self._roi_points else frame
 
         if pre_dets is not None:
@@ -256,7 +257,7 @@ class CameraWorker:
             detections, _ = self._frame_source.infer(detect_frame)
 
         if not detections:
-            return []
+            return [], []
 
         detections = self._box_processor.process_detections(frame, detections)
 
@@ -266,10 +267,11 @@ class CameraWorker:
             tracked = detections
 
         if not tracked:
-            return []
+            return [], []
 
         ts = datetime.now(timezone.utc).isoformat()
         events: list[dict] = []
+        vis_boxes: list[dict] = []
 
         for obj in tracked:
             tid = obj.get("track_id")
@@ -293,6 +295,12 @@ class CameraWorker:
             else:
                 continue
 
+            vis_boxes.append({
+                "x1": int(x1), "y1": int(y1), "x2": int(x2), "y2": int(y2),
+                "label": f"#{tid}",
+                "confidence": obj.get("confidence", 0),
+            })
+
             base = {
                 "camera_id": self.camera_id,
                 "tracking_id": tid,
@@ -310,7 +318,38 @@ class CameraWorker:
             }
             events.append(base)
 
-        return events
+        return events, vis_boxes
+
+    def _draw_overlays(self, frame: np.ndarray, boxes: list[dict]) -> np.ndarray:
+        vis = frame.copy()
+
+        if self._roi_points:
+            h, w = vis.shape[:2]
+            pts = np.array(
+                [[int(p[0] * w), int(p[1] * h)] for p in self._roi_points], dtype=np.int32
+            )
+            cv2.polylines(vis, [pts], isClosed=True, color=(0, 255, 255), thickness=2)
+
+        for b in boxes:
+            x1, y1, x2, y2 = b["x1"], b["y1"], b["x2"], b["y2"]
+            label = b.get("label", "")
+            conf = b.get("confidence", 0)
+
+            cv2.rectangle(vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            text = f"{label} {conf:.0%}" if conf else label
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            thickness = 2
+            (tw, th), _ = cv2.getTextSize(text, font, font_scale, thickness)
+            cv2.rectangle(vis, (x1, y1 - th - 8), (x1 + tw + 4, y1), (0, 255, 0), -1)
+            cv2.putText(vis, text, (x1 + 2, y1 - 4), font, font_scale, (0, 0, 0), thickness)
+
+        if self._counter:
+            count_text = f"Count: {self._counter.total_count}"
+            cv2.putText(vis, count_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+
+        return vis
 
     def _publish_frame(self, frame: np.ndarray) -> None:
         self._frame_store.publish(self.camera_id, frame)
