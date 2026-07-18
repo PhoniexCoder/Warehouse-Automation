@@ -30,6 +30,7 @@ class CameraResponse(BaseModel):
     last_seen: datetime | None
     model_path: str | None = None
     roi: dict | list | None = None
+    health: dict | None = None
 
     model_config = {"from_attributes": True}
 

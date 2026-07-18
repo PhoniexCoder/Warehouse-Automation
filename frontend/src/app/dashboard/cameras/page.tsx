@@ -252,6 +252,12 @@ export default function CamerasPage() {
   }
 
   const filtered = cameras.filter((c) => {
+    if (c.status === "active" || c.status === "online") {
+      const hStatus = c.health?.status
+      if (hStatus === "reconnecting" || hStatus === "dead" || hStatus === "error") {
+        return false
+      }
+    }
     if (statusFilter === "all") return true
     return c.status === statusFilter
   })

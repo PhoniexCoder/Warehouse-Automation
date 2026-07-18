@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import SETTINGS
 from app.database.session import get_session
 from app.schemas.common import ApiResponse
 from app.schemas.camera import CameraCreate, CameraUpdate, CameraResponse, VmsScanRequest, VmsImportRequest, DvripConnectRequest
@@ -52,9 +53,29 @@ async def list_cameras(
 ) -> ApiResponse:
     service = CameraService(session)
     cameras = await service.list_by_warehouse(warehouse_id) if warehouse_id else await service.list_all()
+
+    ai_status = {}
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{SETTINGS.ai_engine_url}/api/v1/cameras")
+            if resp.status_code == 200:
+                ai_status = resp.json().get("data", {}).get("cameras", {})
+    except Exception as exc:
+        LOGGER.warning("Failed to fetch camera health from AI Engine: %s", exc)
+
+    data = []
+    for c in cameras:
+        c_res = CameraResponse.model_validate(c).model_dump(mode="json")
+        cam_id_str = str(c.id)
+        if cam_id_str in ai_status:
+            c_res["health"] = ai_status[cam_id_str].get("health")
+        else:
+            c_res["health"] = None
+        data.append(c_res)
+
     return ApiResponse(
         success=True,
-        data=[CameraResponse.model_validate(c).model_dump(mode="json") for c in cameras],
+        data=data,
     )
 
 
@@ -66,9 +87,26 @@ async def get_camera(
 ) -> ApiResponse:
     service = CameraService(session)
     camera = await service.get(camera_uuid)
+
+    ai_status = {}
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{SETTINGS.ai_engine_url}/api/v1/cameras")
+            if resp.status_code == 200:
+                ai_status = resp.json().get("data", {}).get("cameras", {})
+    except Exception as exc:
+        LOGGER.warning("Failed to fetch camera health from AI Engine: %s", exc)
+
+    c_res = CameraResponse.model_validate(camera).model_dump(mode="json")
+    cam_id_str = str(camera.id)
+    if cam_id_str in ai_status:
+        c_res["health"] = ai_status[cam_id_str].get("health")
+    else:
+        c_res["health"] = None
+
     return ApiResponse(
         success=True,
-        data=CameraResponse.model_validate(camera).model_dump(mode="json"),
+        data=c_res,
     )
 
 

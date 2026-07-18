@@ -36,6 +36,7 @@ export interface Camera {
   last_seen: string | null
   model_path: string | null
   roi: { x: number; y: number }[] | null
+  health?: { status: string; frames?: number; [key: string]: any } | null
 }
 
 export interface InventoryItem {
