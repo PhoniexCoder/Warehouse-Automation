@@ -169,21 +169,27 @@ class CameraWorker:
             )
             if not self._frame_source.is_open():
                 raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url}")
-            from cv_engine.services.detector import BoxDetector
-            import subprocess
-            device = self.config.get("device", "cpu")
-            try:
-                subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
-                if device == "cpu":
-                    device = "cuda:0"
-            except Exception:
-                pass
-            self._detector = BoxDetector(
-                model_path=self.config.get("model_path"),
-                conf_threshold=self._detection_conf,
-                device=device,
-                input_size=self.config.get("input_size", 640),
-            )
+            model_path = self.config.get("model_path")
+            if model_path:
+                from cv_engine.services.detector import BoxDetector
+                import subprocess
+                device = self.config.get("device", "cpu")
+                try:
+                    subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
+                    if device == "cpu":
+                        device = "cuda:0"
+                except Exception:
+                    pass
+                self._detector = BoxDetector(
+                    model_path=model_path,
+                    conf_threshold=self._detection_conf,
+                    device=device,
+                    input_size=self.config.get("input_size", 640),
+                )
+                LOGGER.info("[%s] YOLO loaded: %s (conf=%.2f, device=%s)",
+                            self.camera_id, model_path, self._detection_conf, device)
+            else:
+                LOGGER.info("[%s] No model selected — stream-only mode (no detection)", self.camera_id)
         else:
             from cv_engine.services.inference_engine import InferenceEngine
             self._frame_source = InferenceEngine(
@@ -268,7 +274,7 @@ class CameraWorker:
         elif self._detector is not None:
             detections = self._detector.detect(detect_frame)
         else:
-            detections, _ = self._frame_source.infer(detect_frame)
+            return [], []
 
         if not detections:
             return [], []
