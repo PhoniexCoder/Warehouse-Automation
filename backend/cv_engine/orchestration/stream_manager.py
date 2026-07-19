@@ -283,6 +283,13 @@ class CameraStream:
                     except Exception:
                         pass
                     self._client = None
+                # Stop decoder between connections to reset state
+                if self._decoder:
+                    try:
+                        self._decoder.stop()
+                    except Exception:
+                        pass
+                    self._decoder = None
                 _nvr_scheduler.release(self.host, self.port)
 
             if self._stop.is_set():
@@ -327,9 +334,9 @@ class CameraStream:
     def _read_loop(self) -> None:
         """Read packets from DVRIP client, decode, and distribute.
 
-        Only I-frames are decoded to JPEG (P-frames can't be decoded in
-        isolation without decoder state). This gives us keyframe-rate FPS
-        (~1 FPS) for live preview, which is acceptable for surveillance.
+        Decodes both I-frames and P-frames to JPEG. The persistent FFmpeg
+        decoder maintains state between frames, allowing P-frame decoding
+        at full NVR frame rate (25+ FPS).
         """
         assert self._client is not None
 
@@ -347,7 +354,7 @@ class CameraStream:
 
             # Detect codec from I-frame metadata; default to h264
             codec = "h264"
-            if ptype == TYPE_I_FRAME and "codec" in meta:
+            if "codec" in meta:
                 codec_byte = meta["codec"]
                 if codec_byte in (3, 0x12, 0x13):
                     codec = "h265"
@@ -355,8 +362,8 @@ class CameraStream:
             self._total_frames += 1
             self._last_frame_time = time.time()
 
-            # Only decode I-frames (keyframes) — P-frames need decoder state
-            if ptype in (TYPE_I_FRAME, TYPE_JPEG):
+            # Decode I-frames, P-frames, and JPEG packets
+            if ptype in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
                 jpeg_bytes = self._decode_to_jpeg(payload, ptype, codec, meta)
                 if jpeg_bytes:
                     self._distribute_jpeg(jpeg_bytes)
@@ -364,11 +371,12 @@ class CameraStream:
     def _decode_to_jpeg(
         self, payload: bytes, ptype: int, codec: str, meta: dict
     ) -> Optional[bytes]:
-        """Decode raw video bytes to JPEG using FFmpeg decoder.
+        """Decode raw video bytes to JPEG using the persistent FFmpeg decoder.
 
-        Initializes the FFmpeg process lazily on first frame.
+        The decoder maintains state between frames, allowing P-frame decoding.
+        Re-initializes if codec changes (e.g., H.264 → H.265).
         """
-        # Lazy-init FFmpeg decoder
+        # Lazy-init or re-init on codec change
         if self._decoder is None or not self._decoder.is_running:
             width = meta.get("width", 1920)
             height = meta.get("height", 1080)
@@ -379,25 +387,41 @@ class CameraStream:
                 LOGGER.error("[%s] Failed to start FFmpeg decoder", self.camera_id)
                 self._decoder = None
                 return None
+        elif self._decoder.codec != codec:
+            # Codec changed — restart decoder
+            LOGGER.info(
+                "[%s] Codec changed %s → %s, restarting decoder",
+                self.camera_id, self._decoder.codec, codec,
+            )
+            self._decoder.stop()
+            self._decoder = FfmpegDecoder(
+                width=meta.get("width", 1920),
+                height=meta.get("height", 1080),
+                codec=codec,
+            )
+            if not self._decoder.start():
+                LOGGER.error("[%s] Failed to restart FFmpeg decoder", self.camera_id)
+                self._decoder = None
+                return None
 
-        # Decode via FFmpeg
+        # JPEG packets are already JPEG — pass through directly
+        if ptype == TYPE_JPEG:
+            return payload
+
+        # Decode via persistent FFmpeg (works for both I-frames and P-frames)
         jpeg = self._decoder.decode(payload)
         if jpeg:
             return jpeg
 
-        # Fallback: try OpenCV (works for JPEG packets and sometimes raw NALs)
-        if ptype == TYPE_JPEG:
-            return payload  # Already JPEG
-
-        frame = None
+        # Fallback: try OpenCV for I-frames only
         if ptype == TYPE_I_FRAME:
-            # I-frame with NAL units — try cv2.imdecode
-            import numpy as np
-            np_arr = np.frombuffer(payload, dtype=np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-        if frame is not None and frame.size > 0:
-            return encode_jpeg(frame, JPEG_QUALITY_STREAM)
+            try:
+                np_arr = np.frombuffer(payload, dtype=np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if frame is not None and frame.size > 0:
+                    return encode_jpeg(frame, JPEG_QUALITY_STREAM)
+            except Exception:
+                pass
 
         LOGGER.warning(
             "[%s] Decode failed for frame type 0x%02X (codec=%s, payload=%d bytes)",
