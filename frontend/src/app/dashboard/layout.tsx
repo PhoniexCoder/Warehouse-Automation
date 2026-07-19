@@ -16,6 +16,7 @@ const navItems = [
   { href: "/dashboard/inventory", label: "Inventory" },
   { href: "/dashboard/cameras", label: "Cameras & NVRs" },
   { href: "/dashboard/warehouses", label: "Warehouses" },
+  { href: "/dashboard/users", label: "Users" },
   { href: "/dashboard/alerts", label: "Alerts" },
 ]
 
@@ -118,7 +119,14 @@ function DashboardShell({ children }: { children: ReactNode }) {
 
           {/* Center: Pill Navigation Menu (hidden on mobile, expandable menu on mobile optional) */}
           <nav className="hidden md:flex items-center bg-[#f1f3f7] p-1 rounded-full border border-slate-200/50">
-            {filteredNavItems.map((item) => {
+            {navItems
+              .filter((item) => {
+                if (item.href === "/dashboard/users") {
+                  return user.role === "ADMIN" || user.role === "SUPER_ADMIN"
+                }
+                return true
+              })
+              .map((item) => {
               // Active status checks if route starts with the link
               const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
               return (
@@ -205,7 +213,14 @@ function DashboardShell({ children }: { children: ReactNode }) {
         {/* Mobile Navigation Row */}
         <div className="md:hidden border-t border-slate-100 bg-white/95 py-2 overflow-x-auto whitespace-nowrap scrollbar-none">
           <div className="flex items-center px-4 gap-2">
-            {filteredNavItems.map((item) => {
+            {navItems
+              .filter((item) => {
+                if (item.href === "/dashboard/users") {
+                  return user.role === "ADMIN" || user.role === "SUPER_ADMIN"
+                }
+                return true
+              })
+              .map((item) => {
               const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
               return (
                 <Link

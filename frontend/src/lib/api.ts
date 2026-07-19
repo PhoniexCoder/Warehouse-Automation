@@ -307,6 +307,15 @@ export const api = {
     const res = await client.get<ApiResponse>("/users")
     return (res.data.data as User[]) || []
   },
+  createUser: async (data: {
+    username: string
+    email: string
+    password: string
+    role: string
+  }): Promise<User> => {
+    const res = await client.post<ApiResponse>("/register", data)
+    return res.data.data as User
+  },
   impersonateUser: async (userId: string): Promise<TokenData & { target_user: User }> => {
     const res = await client.post<ApiResponse>(`/impersonate/${userId}`)
     return res.data.data as TokenData & { target_user: User }

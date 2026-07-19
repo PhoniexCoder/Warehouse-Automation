@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Spinner } from "@/components/ui/Spinner"
 
+import { Modal } from "@/components/ui/Modal"
+
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: "bg-red-100 text-red-700",
   ADMIN: "bg-orange-100 text-orange-700",
@@ -20,6 +22,15 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null)
+
+  // Creation modal states
+  const [modalOpen, setModalOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [role, setRole] = useState("OPERATOR")
+  const [modalError, setModalError] = useState("")
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN"
 
@@ -47,6 +58,35 @@ export default function UsersPage() {
     }
   }
 
+  async function handleAddUser() {
+    if (!username.trim() || !email.trim() || !password.trim()) return
+    setSaving(true)
+    setModalError("")
+    try {
+      await api.createUser({
+        username,
+        email,
+        password,
+        role,
+      })
+      setModalOpen(false)
+      await fetchUsers()
+    } catch (err: any) {
+      setModalError(err.response?.data?.error?.message || err.message || "Failed to create user")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function openCreateModal() {
+    setUsername("")
+    setEmail("")
+    setPassword("")
+    setRole("OPERATOR")
+    setModalError("")
+    setModalOpen(true)
+  }
+
   if (loading) return <Spinner />
 
   return (
@@ -56,6 +96,12 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-slate-900">Users</h1>
           <p className="text-sm text-slate-500 mt-1">{users.length} user{users.length !== 1 ? "s" : ""} registered</p>
         </div>
+        <Button onClick={openCreateModal} className="flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Add User
+        </Button>
       </div>
 
       {users.length === 0 ? (
@@ -126,6 +172,61 @@ export default function UsersPage() {
           </div>
         </Card>
       )}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Add User">
+        <form onSubmit={(e) => { e.preventDefault(); handleAddUser() }} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="input-field"
+              placeholder="e.g. johndoe"
+              required
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="input-field"
+              placeholder="e.g. johndoe@company.com"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input-field"
+              placeholder="Minimum 8 characters"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">User Role</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="input-field"
+              required
+            >
+              <option value="ADMIN">ADMIN</option>
+              <option value="MANAGER">MANAGER</option>
+              <option value="OPERATOR">OPERATOR</option>
+            </select>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={saving}>Add User</Button>
+          </div>
+          {modalError && <p className="text-sm text-red-650 mt-2">{modalError}</p>}
+        </form>
+      </Modal>
     </div>
   )
 }
