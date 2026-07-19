@@ -14,7 +14,9 @@ _EVENT_TYPE_INVALID_QR = "invalid_qr"
 _EVENT_TYPE_DUPLICATE = "duplicate"
 
 _QUEUE_GET_TIMEOUT = 1.0
-_BUSINESS_BACKEND_URL = "http://localhost:8001/api/v1"
+import os
+_BUSINESS_BACKEND_HOST = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
+_BUSINESS_BACKEND_URL = f"{_BUSINESS_BACKEND_HOST}/api/v1"
 _FORWARD_TIMEOUT = 3.0
 
 
