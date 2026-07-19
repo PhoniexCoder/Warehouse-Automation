@@ -108,6 +108,14 @@ class DVRIPClient:
         # Read buffer for chunk reassembly (like go2rtc's c.buf)
         self._read_buf: bytearray = bytearray()
 
+        # Device info from login response (NetWork.NetCommon)
+        self.channel_count: int = 16
+        self.max_connections: int = 8
+        self.device_type: int = 0
+        self.device_name: str = ""
+        self.firmware_version: str = ""
+        self.login_response: dict = {}
+
     @property
     def connected(self) -> bool:
         return self._connected
@@ -174,6 +182,203 @@ class DVRIPClient:
 
         LOGGER.info("[%s:%d] Connection closed", self.host, self.port)
 
+    def probe_channel(self, channel: int, stream_type: str = "Main", timeout: float = 5.0) -> bool:
+        """Probe a single channel to check if it has active video.
+
+        Connects, logs in, starts OPMonitor on the given channel, and waits
+        for at least one video packet. Returns True if video arrives.
+
+        This reuses the current connection if already logged in (same session).
+        If not connected, creates a new temporary connection.
+        """
+        was_connected = self._connected
+
+        if not was_connected:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.settimeout(timeout)
+            try:
+                self._sock.connect((self.host, self.port))
+            except (socket.error, OSError):
+                return False
+            self._connected = True
+            try:
+                self._login()
+            except Exception:
+                self.close()
+                return False
+
+        # Save state for restore
+        old_channel = self._channel
+        old_stream_type = getattr(self, "_stream_type", "Main")
+        old_buf = self._read_buf
+
+        try:
+            self._channel = channel
+            self._stream_type = stream_type
+            self._read_buf = bytearray()
+
+            self._opmonitor_claim()
+            self._opmonitor_start()
+
+            # Wait for first video packet
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    ptype, payload, meta = self._read_packet()
+                    if ptype in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
+                        LOGGER.debug(
+                            "[%s:%d] Channel %d active (got %s)",
+                            self.host, self.port, channel, frame_type_name(ptype),
+                        )
+                        return True
+                except (socket.timeout, OSError, DVRIPTimeout):
+                    break
+
+            LOGGER.debug("[%s:%d] Channel %d no video", self.host, self.port, channel)
+            return False
+        finally:
+            # Restore state
+            self._channel = old_channel
+            self._stream_type = old_stream_type
+            self._read_buf = old_buf
+
+            if not was_connected:
+                self.close()
+
+    def discover_channels(
+        self,
+        channel_count: Optional[int] = None,
+        probe_timeout: float = 5.0,
+        on_progress: Optional[Callable[[int, int, bool], None]] = None,
+    ) -> list[dict]:
+        """Discover active channels by probing each one sequentially.
+
+        Args:
+            channel_count: Number of channels to probe (uses login info if None)
+            probe_timeout: Seconds to wait for video on each channel
+            on_progress: Callback(channel, total, active) for progress updates
+
+        Returns list of dicts: [{"channel": 0, "active": True}, ...]
+        """
+        if channel_count is None:
+            channel_count = self.channel_count
+
+        active = []
+        for ch in range(channel_count):
+            is_active = self.probe_channel(ch, timeout=probe_timeout)
+            active.append({"channel": ch, "active": is_active})
+            if on_progress:
+                on_progress(ch, channel_count, is_active)
+
+        LOGGER.info(
+            "[%s:%d] Discovered %d/%d active channels",
+            self.host, self.port,
+            sum(1 for c in active if c["active"]),
+            channel_count,
+        )
+        return active
+
+    @staticmethod
+    def discover_broadcast(timeout: float = 3.0) -> list[dict]:
+        """UDP broadcast discovery on port 34569 (like go2rtc).
+
+        Sends a DVRIP probe packet to 239.255.255.250:34569 and collects
+        responses from NVRs on the local network.
+
+        Returns list of dicts with device info:
+        [{"host": "192.168.1.35", "name": "TVS-XXXX", "channel_count": 10, ...}]
+        """
+        import select
+
+        probe_packet = bytes.fromhex("ff00000000000000000000000000fa0500000000")
+        multicast_addr = ("239.255.255.250", 34569)
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.settimeout(timeout)
+            sock.bind(("", 34569))
+
+            # Join multicast group
+            mreq = struct.pack(
+                "4s4s",
+                socket.inet_aton("239.255.255.250"),
+                socket.inet_aton("0.0.0.0"),
+            )
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        except (OSError, socket.error) as e:
+            LOGGER.warning("UDP discovery socket setup failed: %s", e)
+            return []
+
+        # Send probe 3 times (like go2rtc)
+        for _ in range(3):
+            try:
+                sock.sendto(probe_packet, multicast_addr)
+            except OSError:
+                pass
+            time.sleep(0.1)
+
+        devices = []
+        seen_ips = set()
+        deadline = time.time() + timeout
+
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([sock], [], [], min(remaining, 0.5))
+            if not ready:
+                continue
+
+            try:
+                data, addr = sock.recvfrom(4096)
+            except (OSError, socket.error):
+                break
+
+            ip = addr[0]
+            if ip in seen_ips or len(data) <= 21:
+                continue
+            seen_ips.add(ip)
+
+            # Parse JSON after 20-byte header
+            try:
+                json_str = data[20:].decode("utf-8", errors="ignore").rstrip("\x00\n")
+                msg = json.loads(json_str)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+
+            net_common = msg.get("NetWork.NetCommon", {})
+            if not net_common:
+                continue
+
+            # Convert hex IP to decimal if needed
+            host_ip = net_common.get("HostIP", ip)
+            if host_ip.startswith("0x"):
+                try:
+                    hex_bytes = bytes.fromhex(host_ip[2:])
+                    host_ip = f"{hex_bytes[3]}.{hex_bytes[2]}.{hex_bytes[1]}.{hex_bytes[0]}"
+                except (ValueError, IndexError):
+                    host_ip = ip
+
+            devices.append({
+                "host": host_ip,
+                "name": net_common.get("HostName", f"NVR ({host_ip})"),
+                "channel_count": int(net_common.get("ChannelNum", 0)),
+                "max_connections": int(net_common.get("TCPMaxConn", 8)),
+                "device_type": int(net_common.get("DeviceType", 0)),
+                "version": net_common.get("Version", ""),
+                "mac": net_common.get("MAC", ""),
+                "http_port": int(net_common.get("HttpPort", 80)),
+            })
+
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+        LOGGER.info("UDP discovery found %d device(s)", len(devices))
+        return devices
+
     def iter_packets(
         self, on_frame: Optional[Callable[[int, bytes, dict], None]] = None
     ):
@@ -231,12 +436,22 @@ class DVRIPClient:
         )
 
         resp = self._send_and_receive_json(CMD_LOGIN, payload.encode("utf-8"))
+        self.login_response = resp
 
         ret = resp.get("Ret", -1)
         if ret in (100, 515):
-            # Extract session from header (bytes 4-7 of response)
+            # Extract device info from login response
+            net_common = resp.get("NetWork.NetCommon", {})
+            if net_common:
+                self.channel_count = int(net_common.get("ChannelNum", 16))
+                self.max_connections = int(net_common.get("TCPMaxConn", 8))
+                self.device_type = int(net_common.get("DeviceType", 0))
+                self.device_name = str(net_common.get("HostName", ""))
+                self.firmware_version = str(net_common.get("Version", ""))
             LOGGER.info(
-                "[%s:%d] Login successful (Ret=%s)", self.host, self.port, ret
+                "[%s:%d] Login OK (Ret=%s) channels=%d max_conn=%d device=%s",
+                self.host, self.port, ret,
+                self.channel_count, self.max_connections, self.device_name,
             )
         else:
             ret_name = {

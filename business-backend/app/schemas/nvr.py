@@ -52,3 +52,24 @@ class CheckIpResponse(BaseModel):
     reachable: bool
     has_dvrip: bool
     has_rtsp: bool
+
+
+class NvrDiscoverRequest(BaseModel):
+    ip: str = Field(..., examples=["192.168.1.35"])
+    port: int = Field(default=34567, examples=[34567])
+    username: str = Field(..., examples=["admin"])
+    password: str = Field(..., examples=["admin"])
+
+
+class NvrChannelInfo(BaseModel):
+    channel_id: int
+    display_name: str
+    stream_url: str
+    protocol: str
+    active: bool = False
+
+
+class NvrDiscoverResponse(BaseModel):
+    nvr_info: dict
+    all_channels: list[NvrChannelInfo]
+    active_channels: list[NvrChannelInfo]

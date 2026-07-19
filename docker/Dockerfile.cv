@@ -33,7 +33,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir av requests
 
 COPY backend/ /app/backend/
-COPY go2rtc/__init__.py go2rtc/video_stream.py /app/backend/go2rtc/
 COPY models/ /app/models/
 
 WORKDIR /app/backend

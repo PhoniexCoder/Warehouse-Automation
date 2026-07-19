@@ -59,14 +59,3 @@ class TotalCountResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-
-
-class ErrorDetail(BaseModel):
-    code: str
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    success: bool = False
-    data: None = None
-    error: ErrorDetail

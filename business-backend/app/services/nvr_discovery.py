@@ -1,8 +1,10 @@
 import socket
 import asyncio
+import json
 import logging
 import re
-from typing import List, Dict, Any
+import struct
+from typing import List, Dict, Any, Optional
 
 LOGGER = logging.getLogger(__name__)
 
@@ -180,18 +182,258 @@ class NvrDiscoveryService:
 
     @classmethod
     def _scan_dvrip_channels(cls, ip: str, username: str, password: str) -> List[Dict[str, Any]]:
-        """Generate DVRIP URLs for channels 1-16. DVRIP doesn't support
-        per-channel probing, so we return all 16 as available."""
+        """DVRIP channel discovery: login to get device info, then probe channels.
+
+        Uses the DVRIP protocol to:
+        1. Connect and login to get ChannelNum from the response
+        2. Probe each channel by starting OPMonitor and checking for video
+        """
         channels = []
-        for ch in range(1, 17):
+
+        # Step 1: Login to get channel count
+        channel_count = cls._dvrip_get_channel_count(ip, 34567, username, password)
+        if channel_count is None:
+            LOGGER.warning("DVRIP: Could not get channel count from %s, defaulting to 16", ip)
+            channel_count = 16
+
+        # Step 2: Probe each channel for active video
+        for ch in range(channel_count):
+            is_active = cls._dvrip_probe_channel(ip, 34567, username, password, ch)
             stream_url = f"dvrip://{username}:{password}@{ip}:34567/{ch}"
             channels.append({
                 "channel_id": ch,
-                "display_name": f"Channel {ch} - DVRIP Live feed",
+                "display_name": f"Channel {ch}" + (" (active)" if is_active else ""),
                 "stream_url": stream_url,
                 "protocol": "dvrip",
+                "active": is_active,
             })
+
+        active_count = sum(1 for c in channels if c.get("active"))
+        LOGGER.info("DVRIP %s: %d/%d channels active", ip, active_count, channel_count)
         return channels
+
+    @staticmethod
+    def _dvrip_get_channel_count(ip: str, port: int, username: str, password: str, timeout: float = 5.0) -> Optional[int]:
+        """Connect via DVRIP, login, and extract ChannelNum from response."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect((ip, port))
+        except (socket.error, OSError):
+            return None
+
+        try:
+            # Build login payload (same format as go2rtc)
+            hashed = cls._sofia_hash(password)
+            login_data = json.dumps({
+                "EncryptType": "MD5",
+                "LoginType": "DVRIP-Web",
+                "PassWord": hashed,
+                "UserName": username,
+            }, separators=(",", ":")) + "\n\x00"
+
+            # Send login (cmd=1000)
+            payload = login_data.encode("utf-8")
+            header = bytearray(20)
+            header[0] = 0xFF
+            struct.pack_into("<I", header, 16, len(payload))
+            struct.pack_into("<H", header, 14, 1000)  # cmd=1000
+            sock.sendall(bytes(header) + payload)
+
+            # Read response header
+            resp_header = sock.recv(20)
+            if len(resp_header) < 20:
+                return None
+
+            resp_size = struct.unpack_from("<I", resp_header, 16)[0]
+            if resp_size > 1048576:
+                return None
+
+            # Read response payload
+            resp_data = b""
+            while len(resp_data) < resp_size:
+                chunk = sock.recv(min(resp_size - len(resp_data), 65536))
+                if not chunk:
+                    break
+                resp_data += chunk
+
+            # Parse JSON (strip trailing \n\x00)
+            resp_json = resp_data.decode("utf-8", errors="ignore").rstrip("\x00\n")
+            resp = json.loads(resp_json)
+
+            net_common = resp.get("NetWork.NetCommon", {})
+            channel_count = int(net_common.get("ChannelNum", 0))
+            return channel_count if channel_count > 0 else None
+
+        except Exception as e:
+            LOGGER.debug("DVRIP login to %s failed: %s", ip, e)
+            return None
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _dvrip_probe_channel(ip: str, port: int, username: str, password: str, channel: int, timeout: float = 4.0) -> bool:
+        """Probe a single DVRIP channel for active video.
+
+        Connects, logs in, sends OPMonitor Claim+Start, and checks if video arrives.
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            sock.connect((ip, port))
+        except (socket.error, OSError):
+            return False
+
+        try:
+            # Login
+            hashed = cls._sofia_hash(password)
+            login_payload = json.dumps({
+                "EncryptType": "MD5",
+                "LoginType": "DVRIP-Web",
+                "PassWord": hashed,
+                "UserName": username,
+            }, separators=(",", ":")) + "\n\x00"
+
+            cls._dvrip_send(sock, 1000, login_payload.encode("utf-8"))
+            resp = cls._dvrip_recv(sock)
+            if resp is None:
+                return False
+
+            ret = resp.get("Ret", -1)
+            if ret not in (100, 515):
+                return False
+
+            session = resp.get("SessionID", "0x00000000")
+
+            # OPMonitor Claim
+            claim_data = json.dumps({
+                "Name": "OPMonitor",
+                "SessionID": session,
+                "OPMonitor": {
+                    "Action": "Claim",
+                    "Parameter": {
+                        "Channel": channel,
+                        "CombinMode": "NONE",
+                        "StreamType": "Main",
+                        "TransMode": "TCP",
+                    },
+                },
+            }, separators=(",", ":")) + "\n\x00"
+
+            cls._dvrip_send(sock, 1413, claim_data.encode("utf-8"))
+            resp = cls._dvrip_recv(sock)
+            if resp is None:
+                return False
+
+            # OPMonitor Start
+            start_data = json.dumps({
+                "Name": "OPMonitor",
+                "SessionID": session,
+                "OPMonitor": {
+                    "Action": "Start",
+                    "Parameter": {
+                        "Channel": channel,
+                        "CombinMode": "NONE",
+                        "StreamType": "Main",
+                        "TransMode": "TCP",
+                    },
+                },
+            }, separators=(",", ":")) + "\n\x00"
+
+            cls._dvrip_send(sock, 1410, start_data.encode("utf-8"))
+
+            # Wait for first chunk — if it's video data, channel is active
+            sock.settimeout(timeout)
+            try:
+                data = sock.recv(20)
+                if len(data) < 20:
+                    return False
+
+                cmd = struct.unpack_from("<H", data, 14)[0]
+                size = struct.unpack_from("<I", data, 16)[0]
+
+                if size > 0 and size < 1048576:
+                    payload = b""
+                    while len(payload) < size:
+                        chunk = sock.recv(min(size - len(payload), 65536))
+                        if not chunk:
+                            break
+                        payload += chunk
+
+                    # Check if this looks like a frame packet (starts with 00 00 01)
+                    if len(payload) >= 3 and payload[:3] == b"\x00\x00\x01":
+                        frame_type = payload[3]
+                        # Video frame types: 0xFC (I), 0xFD (P), 0xFE (JPEG)
+                        if frame_type in (0xFC, 0xFD, 0xFE):
+                            return True
+
+                # Non-video response — channel inactive
+                return False
+
+            except (socket.timeout, OSError):
+                return False
+
+        except Exception as e:
+            LOGGER.debug("DVRIP probe channel %d on %s failed: %s", channel, ip, e)
+            return False
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _dvrip_send(sock: socket.socket, cmd: int, payload: bytes) -> None:
+        """Send a DVRIP command with 20-byte header."""
+        header = bytearray(20)
+        header[0] = 0xFF
+        struct.pack_into("<H", header, 14, cmd)
+        struct.pack_into("<I", header, 16, len(payload))
+        sock.sendall(bytes(header) + payload)
+
+    @staticmethod
+    def _dvrip_recv(sock: socket.socket, timeout: float = 3.0) -> Optional[dict]:
+        """Read a DVRIP response and parse as JSON."""
+        sock.settimeout(timeout)
+        try:
+            header = b""
+            while len(header) < 20:
+                chunk = sock.recv(20 - len(header))
+                if not chunk:
+                    return None
+                header += chunk
+
+            size = struct.unpack_from("<I", header, 16)[0]
+            if size > 1048576:
+                return None
+
+            payload = b""
+            while len(payload) < size:
+                chunk = sock.recv(min(size - len(payload), 65536))
+                if not chunk:
+                    break
+                payload += chunk
+
+            json_str = payload.decode("utf-8", errors="ignore").rstrip("\x00\n")
+            return json.loads(json_str)
+
+        except (json.JSONDecodeError, socket.timeout, OSError):
+            return None
+
+    @staticmethod
+    def _sofia_hash(password: str) -> str:
+        """Compute DVRIP sofia_hash (MD5-based password hash)."""
+        import hashlib
+        chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        md5_digest = hashlib.md5(password.encode("utf-8")).digest()
+        sofia = bytearray(8)
+        for i in range(0, 8):
+            j = md5_digest[i * 2] + md5_digest[i * 2 + 1]
+            sofia[i] = chars[j % 62]
+        return sofia.decode("ascii")
 
     @classmethod
     async def _scan_rtsp_channels(cls, ip: str, username: str, password: str) -> List[Dict[str, Any]]:

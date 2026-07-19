@@ -108,6 +108,10 @@ def sync_cameras_loop():
                     active_cameras = data["data"]
                     active_ids = set()
 
+                    # Group DVRIP cameras by NVR host:port for staggered startup
+                    dvrip_cameras = []
+                    rtsp_cameras = []
+
                     for cam in active_cameras:
                         try:
                             cam_id = cam["id"]
@@ -117,14 +121,33 @@ def sync_cameras_loop():
                             if not stream_url:
                                 continue
 
-                            # DVRIP cameras: use direct DVRIP protocol (no go2rtc)
                             if stream_url.startswith("dvrip://"):
-                                dvrip_info = _parse_dvrip_url(stream_url)
-                                if not dvrip_info:
-                                    LOGGER.warning("VMS: Cannot parse DVRIP URL for %s: %s", cam_id, stream_url)
-                                    continue
+                                dvrip_cameras.append(cam)
+                            else:
+                                rtsp_cameras.append(cam)
+                        except Exception:
+                            LOGGER.exception("VMS: Failed to process camera %s", cam.get("id", "?"))
 
-                                # Start direct DVRIP stream
+                    # Start DVRIP cameras staggered (2s between batches of 4 per NVR)
+                    nvr_groups: dict[str, list] = {}
+                    for cam in dvrip_cameras:
+                        dvrip_info = _parse_dvrip_url(cam.get("stream_url", ""))
+                        if dvrip_info:
+                            nvr_key = f"{dvrip_info['host']}:{dvrip_info['port']}"
+                            nvr_groups.setdefault(nvr_key, []).append((cam, dvrip_info))
+
+                    first_batch = True
+                    for nvr_key, cameras in nvr_groups.items():
+                        if not first_batch:
+                            time.sleep(3)
+                        first_batch = False
+
+                        for i, (cam, dvrip_info) in enumerate(cameras):
+                            if i > 0 and i % 4 == 0:
+                                time.sleep(2)
+
+                            try:
+                                cam_id = cam["id"]
                                 stream_manager.start_camera(
                                     camera_id=cam_id,
                                     host=dvrip_info["host"],
@@ -134,7 +157,6 @@ def sync_cameras_loop():
                                     channel=dvrip_info["channel"],
                                 )
 
-                                # Also start detection worker if model is assigned
                                 model_path = cam.get("model_path") or ""
                                 detection_config = {
                                     "source_type": "file_store",
@@ -156,48 +178,52 @@ def sync_cameras_loop():
                                         detection_config["_hash"] = new_hash
                                         camera_manager.stop_camera(cam_id)
                                         camera_manager.start_camera(cam_id, detection_config)
+                            except Exception:
+                                LOGGER.exception("VMS: Failed to start DVRIP camera %s", cam_id)
 
-                            else:
-                                # RTSP cameras: use CameraManager directly (no go2rtc)
-                                config = {
-                                    "source_type": "rtsp",
-                                    "source": stream_url,
-                                    "line_y": 500,
-                                    "display_name": cam.get("camera_name", ""),
-                                    "target_fps": 5,
-                                    "frame_skip": 2,
-                                    "model_path": cam.get("model_path") or "",
-                                    "roi": cam.get("roi"),
-                                    "detection_conf": 0.55,
-                                    "count_conf": 0.65,
-                                }
+                    # Start RTSP cameras (no staggering needed)
+                    for cam in rtsp_cameras:
+                        try:
+                            cam_id = cam["id"]
+                            stream_url = cam.get("stream_url", "")
+                            config = {
+                                "source_type": "rtsp",
+                                "source": stream_url,
+                                "line_y": 500,
+                                "display_name": cam.get("camera_name", ""),
+                                "target_fps": 5,
+                                "frame_skip": 2,
+                                "model_path": cam.get("model_path") or "",
+                                "roi": cam.get("roi"),
+                                "detection_conf": 0.55,
+                                "count_conf": 0.65,
+                            }
 
-                                if cam_id in camera_manager._configs:
-                                    old_hash = camera_manager._configs[cam_id].get("_hash", "")
-                                    new_hash = _config_hash(config)
-                                    config["_hash"] = new_hash
+                            if cam_id in camera_manager._configs:
+                                old_hash = camera_manager._configs[cam_id].get("_hash", "")
+                                new_hash = _config_hash(config)
+                                config["_hash"] = new_hash
 
-                                    if new_hash != old_hash:
-                                        LOGGER.info("VMS: Config changed for %s, restarting worker",
-                                                     cam.get("camera_name"))
+                                if new_hash != old_hash:
+                                    LOGGER.info("VMS: Config changed for %s, restarting worker",
+                                                 cam.get("camera_name"))
+                                    camera_manager.stop_camera(cam_id)
+                                    camera_manager.start_camera(cam_id, config)
+                                else:
+                                    health = camera_manager._health.get(cam_id, {})
+                                    status = health.get("status", "")
+                                    if status in ("dead", "stopped"):
+                                        LOGGER.info("VMS: Retrying dead camera %s (%s)",
+                                                     cam.get("camera_name"), cam_id)
                                         camera_manager.stop_camera(cam_id)
                                         camera_manager.start_camera(cam_id, config)
-                                    else:
-                                        health = camera_manager._health.get(cam_id, {})
-                                        status = health.get("status", "")
-                                        if status in ("dead", "stopped"):
-                                            LOGGER.info("VMS: Retrying dead camera %s (%s)",
-                                                         cam.get("camera_name"), cam_id)
-                                            camera_manager.stop_camera(cam_id)
-                                            camera_manager.start_camera(cam_id, config)
-                                else:
-                                    config["_hash"] = _config_hash(config)
-                                    LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
-                                                 cam.get("camera_name"), cam_id, config["source_type"])
-                                    camera_manager.start_camera(cam_id, config)
-
+                            else:
+                                config["_hash"] = _config_hash(config)
+                                LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
+                                             cam.get("camera_name"), cam_id, config["source_type"])
+                                camera_manager.start_camera(cam_id, config)
                         except Exception:
-                            LOGGER.exception("VMS: Failed to start worker for camera %s", cam.get("id", "?"))
+                            LOGGER.exception("VMS: Failed to start RTSP camera %s", cam_id)
 
                     # Stop cameras that are no longer active
                     configured_ids = list(camera_manager._configs.keys())

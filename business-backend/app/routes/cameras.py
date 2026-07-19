@@ -233,38 +233,76 @@ async def import_vms_cameras(
     return ApiResponse(success=True, data={"imported": imported})
 
 
-@router.post("/vms/dvrip-connect", summary="Connect to NVR via DVRIP and auto-import all channels")
+@router.post("/vms/dvrip-connect", summary="Connect to NVR via DVRIP and auto-import active channels")
 async def dvrip_connect(
     body: DvripConnectRequest,
     _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
-    """One-click DVRIP setup: enter host/credentials, imports all 16 channels as dvrip:// URLs.
-    The AI backend auto-detects dvrip:// and starts streaming via native DVRIP protocol."""
+    """xMEye-style one-click DVRIP setup.
+
+    Discovers NVR device info, probes channels for active video,
+    creates an NVR record, and imports only active channels.
+    """
+    from app.services.nvr_discovery import NvrDiscoveryService
+    from app.models.nvr import Nvr
+
     service = CameraService(session)
     audit = AuditService(session)
 
+    loop = asyncio.get_event_loop()
+
+    # Step 1: Discover channels
+    channels = await loop.run_in_executor(
+        None,
+        NvrDiscoveryService._scan_dvrip_channels,
+        body.host, body.username, body.password,
+    )
+
+    active_channels = [c for c in channels if c.get("active")]
+
+    # Step 2: Create NVR record
+    nvr = Nvr(
+        warehouse_id=body.warehouse_id,
+        name=f"NVR {body.host}",
+        ip_address=body.host,
+        port=34567,
+        protocol="dvrip",
+        username=body.username,
+        password=body.password,
+    )
+    session.add(nvr)
+    await session.flush()
+
+    # Step 3: Import active channels
     imported = []
-    for ch in range(1, 17):
+    for ch_info in active_channels:
+        ch = ch_info["channel_id"]
         stream_url = f"dvrip://{body.username}:{body.password}@{body.host}:34567/{ch}"
-        camera_name = f"DVRIP {body.host} Ch{ch}"
+        camera_name = f"{nvr.name} Ch{ch}"
 
         camera = await service.create(
             warehouse_id=body.warehouse_id,
             camera_name=camera_name,
             stream_url=stream_url,
             status="active",
+            nvr_id=nvr.id,
         )
         imported.append(CameraResponse.model_validate(camera).model_dump(mode="json"))
 
     await audit.log(action="camera.dvrip_connected")
+    LOGGER.info(
+        "DVRIP connect %s: %d/%d channels imported",
+        body.host, len(imported), len(channels),
+    )
     return ApiResponse(
         success=True,
         data={
+            "nvr": NvrResponse.model_validate(nvr).model_dump(mode="json"),
             "imported": imported,
-            "host": body.host,
-            "channels": len(imported),
-            "protocol": "dvrip",
+            "total_channels": len(channels),
+            "active_channels": len(active_channels),
+            "all_channels": channels,
         },
     )
 

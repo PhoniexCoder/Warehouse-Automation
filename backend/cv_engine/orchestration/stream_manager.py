@@ -4,8 +4,8 @@ Manages DVRIP connections for each camera, decodes H.264/H.265 to JPEG
 via FFmpeg subprocess, distributes JPEG frames to WebSocket subscribers
 and FrameStore (for MJPEG fallback).
 
-Includes NVR connection limiter to prevent exceeding the NVR's max
-concurrent session limit (typically 8).
+Includes staggered NVR connection scheduler to prevent exceeding the
+NVR's max concurrent session limit and avoid thundering herd issues.
 """
 
 import logging
@@ -36,45 +36,91 @@ RECONNECT_BASE_DELAY = 2.0
 RECONNECT_MAX_DELAY = 30.0
 HEALTH_STALE_SECONDS = 20.0
 
-# NVR connection limiting — most NVRs allow max 8 simultaneous DVRIP sessions
-MAX_CONNECTIONS_PER_NVR = 8
+# Default NVR connection limit (overridden by login response TCPMaxConn)
+DEFAULT_MAX_CONNECTIONS = 8
+# Delay between consecutive connections to the same NVR (avoids overwhelming it)
+STAGGER_DELAY = 2.0
 
 
-class NvrConnectionLimiter:
-    """Tracks and limits concurrent DVRIP connections per NVR host:port."""
+class NvrConnectionScheduler:
+    """Per-NVR connection scheduler with staggered startup and blocking acquire.
 
-    def __init__(self, max_per_nvr: int = MAX_CONNECTIONS_PER_NVR) -> None:
-        self._max = max_per_nvr
-        self._counts: dict[str, int] = defaultdict(int)
+    Uses a threading.Semaphore per NVR to enforce the connection limit.
+    Threads block on acquire() instead of polling every 5 seconds.
+    """
+
+    def __init__(self) -> None:
+        self._semaphores: dict[str, threading.Semaphore] = {}
+        self._max_per_nvr: dict[str, int] = {}
+        self._last_connect_time: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def _key(self, host: str, port: int) -> str:
         return f"{host}:{port}"
 
-    def acquire(self, host: str, port: int) -> bool:
-        """Try to acquire a connection slot. Returns True if allowed."""
+    def configure_nvr(self, host: str, port: int, max_connections: int) -> None:
+        """Set the max connections for an NVR (from login response TCPMaxConn)."""
+        key = self._key(host, port)
         with self._lock:
-            key = self._key(host, port)
-            if self._counts[key] >= self._max:
-                return False
-            self._counts[key] += 1
-            return True
+            if key not in self._semaphores or self._max_per_nvr.get(key) != max_connections:
+                self._semaphores[key] = threading.Semaphore(max_connections)
+                self._max_per_nvr[key] = max_connections
+                LOGGER.info("NVR %s configured for %d max connections", key, max_connections)
+
+    def acquire(self, host: str, port: int, timeout: float = 60.0) -> bool:
+        """Block until a connection slot is available. Returns False on timeout."""
+        key = self._key(host, port)
+
+        # Ensure semaphore exists
+        with self._lock:
+            if key not in self._semaphores:
+                self._semaphores[key] = threading.Semaphore(DEFAULT_MAX_CONNECTIONS)
+                self._max_per_nvr[key] = DEFAULT_MAX_CONNECTIONS
+
+        # Stagger: enforce minimum delay between connections to same NVR
+        with self._lock:
+            last = self._last_connect_time.get(key, 0.0)
+            elapsed = time.time() - last
+            if elapsed < STAGGER_DELAY:
+                wait = STAGGER_DELAY - elapsed
+                self._lock.release()
+                time.sleep(wait)
+                self._lock.acquire()
+
+        # Blocking acquire with timeout
+        sem = self._semaphores[key]
+        acquired = sem.acquire(timeout=timeout)
+        if acquired:
+            with self._lock:
+                self._last_connect_time[key] = time.time()
+        return acquired
 
     def release(self, host: str, port: int) -> None:
         """Release a connection slot."""
+        key = self._key(host, port)
         with self._lock:
-            key = self._key(host, port)
-            if self._counts[key] > 0:
-                self._counts[key] -= 1
+            sem = self._semaphores.get(key)
+        if sem:
+            try:
+                sem.release()
+            except ValueError:
+                pass  # Released more than acquired
 
-    @property
-    def status(self) -> dict:
+    def get_status(self) -> dict:
+        """Return current state of all NVR schedulers."""
+        status = {}
         with self._lock:
-            return dict(self._counts)
+            for key, sem in self._semaphores.items():
+                max_conn = self._max_per_nvr.get(key, DEFAULT_MAX_CONNECTIONS)
+                # Count available permits (approximate)
+                status[key] = {
+                    "max_connections": max_conn,
+                }
+        return status
 
 
-# Global limiter
-_nvr_limiter = NvrConnectionLimiter()
+# Global scheduler (replaces old NvrConnectionLimiter)
+_nvr_scheduler = NvrConnectionScheduler()
 
 
 class CameraStream:
@@ -181,7 +227,7 @@ class CameraStream:
             self._thread.join(timeout=5)
             self._thread = None
 
-        _nvr_limiter.release(self.host, self.port)
+        _nvr_scheduler.release(self.host, self.port)
 
     def subscribe_websocket(self, subscriber_id: str, queue_put: Callable) -> None:
         """Register a WebSocket subscriber for JPEG frames."""
@@ -208,15 +254,13 @@ class CameraStream:
     def _run(self) -> None:
         """Main loop: connect, read packets, decode, distribute."""
         while not self._stop.is_set():
-            # Check NVR connection limit
-            if not _nvr_limiter.acquire(self.host, self.port):
+            # Block until a connection slot is available (with stagger delay)
+            if not _nvr_scheduler.acquire(self.host, self.port, timeout=30.0):
                 LOGGER.warning(
-                    "[%s] NVR connection limit reached (%s:%d), waiting...",
-                    self.camera_id,
-                    self.host,
-                    self.port,
+                    "[%s] NVR connection slot timeout (%s:%d), retrying...",
+                    self.camera_id, self.host, self.port,
                 )
-                self._stop.wait(5.0)
+                self._stop.wait(10.0)
                 continue
 
             try:
@@ -226,7 +270,6 @@ class CameraStream:
                 LOGGER.warning("[%s] Connection failed: %s", self.camera_id, e)
             except DVRIPAuthError as e:
                 LOGGER.error("[%s] Auth failed: %s", self.camera_id, e)
-                # Auth errors are permanent — don't retry
                 break
             except Exception as e:
                 LOGGER.exception("[%s] Unexpected error: %s", self.camera_id, e)
@@ -238,12 +281,11 @@ class CameraStream:
                     except Exception:
                         pass
                     self._client = None
-                _nvr_limiter.release(self.host, self.port)
+                _nvr_scheduler.release(self.host, self.port)
 
             if self._stop.is_set():
                 break
 
-            # Exponential backoff reconnection
             self._consecutive_errors += 1
             delay = min(
                 RECONNECT_BASE_DELAY * (2 ** min(self._consecutive_errors - 1, 4)),
@@ -268,11 +310,16 @@ class CameraStream:
         self._client.connect(channel=self.channel)
         self._connected = True
         self._consecutive_errors = 0
+
+        # Update scheduler with NVR's actual connection limit from login response
+        if self._client.max_connections:
+            _nvr_scheduler.configure_nvr(self.host, self.port, self._client.max_connections)
+
         LOGGER.info(
-            "[%s] DVRIP connected to %s:%d",
-            self.camera_id,
-            self.host,
-            self.port,
+            "[%s] DVRIP connected (channel=%d, device=%s, max_conn=%d)",
+            self.camera_id, self.channel,
+            self._client.device_name or "unknown",
+            self._client.max_connections,
         )
 
     def _read_loop(self) -> None:

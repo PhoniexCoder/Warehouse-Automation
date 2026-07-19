@@ -243,6 +243,14 @@ export const api = {
     const res = await client.post<ApiResponse>(`/nvrs/${nvrId}/import-channels?${params.toString()}`)
     return res.data.data
   },
+  discoverNvr: async (payload: { ip: string; port?: number; username: string; password: string }): Promise<any> => {
+    const res = await client.post<ApiResponse>("/nvrs/discover", payload)
+    return res.data.data
+  },
+  discoverNvrBroadcast: async (): Promise<any[]> => {
+    const res = await client.post<ApiResponse>("/nvrs/discover-broadcast")
+    return (res.data.data as any[]) || []
+  },
 
   // Inventory
   getInventory: async (): Promise<InventoryItem[]> => {

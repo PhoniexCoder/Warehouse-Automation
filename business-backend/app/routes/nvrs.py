@@ -14,11 +14,14 @@ from app.schemas.nvr import (
     NvrResponse,
     CheckIpRequest,
     CheckIpResponse,
+    NvrDiscoverRequest,
+    NvrDiscoverResponse,
 )
 from app.models.nvr import Nvr
 from app.models.camera import Camera, CameraStatus
 from app.auth.permissions import require_manager_up, require_any
 from app.services.go2rtc_config import sync_cameras
+from app.services.nvr_discovery import NvrDiscoveryService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -198,6 +201,84 @@ async def check_nvr_ip(
             has_rtsp=has_rtsp,
         ).model_dump(mode="json"),
     )
+
+
+@router.post("/nvrs/discover", summary="xMEye-style: enter IP, discover all cameras on NVR")
+async def discover_nvr(
+    body: NvrDiscoverRequest,
+    _any: None = Depends(require_any),
+) -> ApiResponse:
+    """Discover NVR device info and active channels.
+
+    Flow: TCP connect -> DVRIP login (get channel count) -> probe each channel.
+    Returns NVR info + list of active channels with their status.
+    """
+    loop = asyncio.get_event_loop()
+
+    # Step 1: Get channel count via DVRIP login
+    channel_count = await loop.run_in_executor(
+        None,
+        NvrDiscoveryService._dvrip_get_channel_count,
+        body.ip, body.port, body.username, body.password,
+    )
+
+    if channel_count is None:
+        return ApiResponse(
+            success=False,
+            error={
+                "code": "CONNECTION_FAILED",
+                "message": f"Could not connect to DVRIP at {body.ip}:{body.port}. "
+                           "Check IP, port, and credentials.",
+            },
+        )
+
+    # Step 2: Probe each channel for active video
+    channels = await loop.run_in_executor(
+        None,
+        NvrDiscoveryService._scan_dvrip_channels,
+        body.ip, body.username, body.password,
+    )
+
+    active_channels = [c for c in channels if c.get("active")]
+
+    LOGGER.info(
+        "NVR discovered: %s:%d channels=%d active=%d",
+        body.ip, body.port, channel_count, len(active_channels),
+    )
+
+    return ApiResponse(
+        success=True,
+        data={
+            "nvr_info": {
+                "ip": body.ip,
+                "port": body.port,
+                "channel_count": channel_count,
+                "active_count": len(active_channels),
+            },
+            "all_channels": channels,
+            "active_channels": active_channels,
+        },
+    )
+
+
+@router.post("/nvrs/discover-broadcast", summary="UDP broadcast discovery for NVRs on local network")
+async def discover_nvr_broadcast(
+    _any: None = Depends(require_any),
+) -> ApiResponse:
+    """Send UDP broadcast to find NVRs on the local network.
+
+    Uses the DVRIP UDP discovery protocol (port 34569) to find NVRs.
+    """
+    from cv_engine.services.dvrip_client import DVRIPClient
+
+    loop = asyncio.get_event_loop()
+    devices = await loop.run_in_executor(
+        None,
+        DVRIPClient.discover_broadcast,
+        3.0,
+    )
+
+    return ApiResponse(success=True, data=devices)
 
 
 @router.post("/nvrs/{nvr_id}/import-channels", summary="Import channels from an NVR as cameras")

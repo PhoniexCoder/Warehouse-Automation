@@ -42,6 +42,11 @@ export default function CamerasPage() {
   const [dvripUsername, setDvripUsername] = useState("")
   const [dvripPassword, setDvripPassword] = useState("")
   const [dvripConnecting, setDvripConnecting] = useState(false)
+  const [dvripStep, setDvripStep] = useState<1 | 2 | 3>(1)
+  const [dvripDeviceInfo, setDvripDeviceInfo] = useState<any>(null)
+  const [dvripChannels, setDvripChannels] = useState<any[]>([])
+  const [dvripDiscovering, setDvripDiscovering] = useState(false)
+  const [dvripSelectedChannels, setDvripSelectedChannels] = useState<number[]>([])
 
   // VMS discovery state
   const [discoverModalOpen, setDiscoverModalOpen] = useState(false)
@@ -360,6 +365,28 @@ export default function CamerasPage() {
     )
   }
 
+  async function handleDvripDiscover() {
+    if (!dvripHost.trim() || !dvripUsername.trim() || !dvripPassword.trim()) return
+    setDvripDiscovering(true)
+    try {
+      const result = await api.discoverNvr({
+        ip: dvripHost,
+        username: dvripUsername,
+        password: dvripPassword,
+      })
+      setDvripDeviceInfo(result.nvr_info)
+      setDvripChannels(result.all_channels || [])
+      setDvripSelectedChannels(
+        (result.active_channels || []).map((c: any) => c.channel_id)
+      )
+      setDvripStep(3)
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to discover NVR")
+    } finally {
+      setDvripDiscovering(false)
+    }
+  }
+
   async function handleDvripConnect() {
     if (!dvripHost.trim()) return
     setDvripConnecting(true)
@@ -371,12 +398,23 @@ export default function CamerasPage() {
         password: dvripPassword,
       })
       setDvripModalOpen(false)
+      resetDvripModal()
       await fetchCamerasData()
     } catch (err: any) {
       alert(err.response?.data?.error?.message || err.message || "Failed to connect via DVRIP")
     } finally {
       setDvripConnecting(false)
     }
+  }
+
+  function resetDvripModal() {
+    setDvripStep(1)
+    setDvripDeviceInfo(null)
+    setDvripChannels([])
+    setDvripSelectedChannels([])
+    setDvripHost("")
+    setDvripUsername("")
+    setDvripPassword("")
   }
 
   function getNvrName(nvrId: string | null): string | null {
@@ -913,69 +951,140 @@ export default function CamerasPage() {
         </div>
       </Modal>
 
-      <Modal open={dvripModalOpen} onClose={() => setDvripModalOpen(false)} title="DVRIP Quick Connect">
+      <Modal open={dvripModalOpen} onClose={() => { setDvripModalOpen(false); resetDvripModal() }} title={dvripStep === 3 ? "Select Channels to Import" : "Connect to NVR"}>
         <div className="space-y-4">
-          <p className="text-sm text-secondary">
-            Connect to a TVS/XM NVR via native DVRIP protocol. All 16 channels will be auto-imported and streaming will start automatically.
-          </p>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">NVR IP Address</label>
-            <input
-              value={dvripHost}
-              onChange={(e) => setDvripHost(e.target.value)}
-              className="input-field font-mono"
-              placeholder="192.168.1.35"
-              autoFocus
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Username</label>
-              <input
-                value={dvripUsername}
-                onChange={(e) => setDvripUsername(e.target.value)}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">Password</label>
-              <input
-                type="password"
-                value={dvripPassword}
-                onChange={(e) => setDvripPassword(e.target.value)}
-                className="input-field"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Warehouse</label>
-            <select
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value)}
-              className="input-field"
-              required
-            >
-              <option value="">Select warehouse</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <p className="text-xs text-blue-700">
-              <strong>Protocol:</strong> Native DVRIP (TCP port 34567) — no RTSP or FFmpeg required.
-              Connects directly to the NVR for lower latency and more reliable streaming.
-            </p>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setDvripModalOpen(false)}>Cancel</Button>
-            <Button onClick={handleDvripConnect} loading={dvripConnecting} className="flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              Connect &amp; Stream All Channels
-            </Button>
-          </div>
+          {dvripStep === 1 && (
+            <>
+              <p className="text-sm text-secondary">
+                Enter your NVR's IP address. We'll connect via DVRIP protocol, discover all cameras, and let you choose which to import.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">NVR IP Address</label>
+                <input
+                  value={dvripHost}
+                  onChange={(e) => setDvripHost(e.target.value)}
+                  className="input-field font-mono"
+                  placeholder="192.168.1.35"
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Username</label>
+                  <input
+                    value={dvripUsername}
+                    onChange={(e) => setDvripUsername(e.target.value)}
+                    className="input-field"
+                    placeholder="admin"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Password</label>
+                  <input
+                    type="password"
+                    value={dvripPassword}
+                    onChange={(e) => setDvripPassword(e.target.value)}
+                    className="input-field"
+                    placeholder="admin"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1.5">Warehouse</label>
+                <select
+                  value={warehouseId}
+                  onChange={(e) => setWarehouseId(e.target.value)}
+                  className="input-field"
+                  required
+                >
+                  <option value="">Select warehouse</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-700">
+                  <strong>xMEye Smart Connect:</strong> Enter your NVR IP and credentials.
+                  We'll connect, discover all cameras, and show you which channels are active.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="secondary" onClick={() => { setDvripModalOpen(false); resetDvripModal() }}>Cancel</Button>
+                <Button onClick={handleDvripDiscover} loading={dvripDiscovering} className="flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  Discover Cameras
+                </Button>
+              </div>
+            </>
+          )}
+
+          {dvripStep === 3 && (
+            <>
+              {dvripDeviceInfo && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-green-800">NVR Connected</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Channels: {dvripDeviceInfo.channel_count} total, {dvripDeviceInfo.active_count} active
+                  </p>
+                </div>
+              )}
+              <p className="text-sm text-secondary">
+                Select which channels to import as cameras. Active channels are pre-selected.
+              </p>
+              <div className="grid grid-cols-4 gap-2 max-h-60 overflow-y-auto">
+                {dvripChannels.map((ch) => (
+                  <label
+                    key={ch.channel_id}
+                    className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                      dvripSelectedChannels.includes(ch.channel_id)
+                        ? "bg-blue-50 border-blue-300"
+                        : ch.active
+                        ? "bg-white border-gray-200 hover:border-blue-200"
+                        : "bg-gray-50 border-gray-200 opacity-50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={dvripSelectedChannels.includes(ch.channel_id)}
+                      onChange={() => {
+                        setDvripSelectedChannels(prev =>
+                          prev.includes(ch.channel_id)
+                            ? prev.filter(id => id !== ch.channel_id)
+                            : [...prev, ch.channel_id]
+                        )
+                      }}
+                      className="rounded border-gray-300"
+                    />
+                    <div>
+                      <div className="text-xs font-medium">Ch {ch.channel_id}</div>
+                      <div className={`text-[10px] ${ch.active ? "text-green-600" : "text-gray-400"}`}>
+                        {ch.active ? "active" : "inactive"}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="flex justify-between items-center pt-2">
+                <Button variant="secondary" onClick={() => setDvripStep(1)} className="text-sm">
+                  Back
+                </Button>
+                <Button
+                  onClick={handleDvripConnect}
+                  loading={dvripConnecting}
+                  disabled={dvripSelectedChannels.length === 0}
+                  className="flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Import {dvripSelectedChannels.length} Channels
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

@@ -22,10 +22,6 @@ TYPE_P_FRAME = 0xFD
 TYPE_AUDIO = 0xFA
 TYPE_INFO = 0xF9
 
-# Codec mappings
-VIDEO_CODEC = {1: "mpeg4", 2: "h264", 3: "h265", 0x12: "h265", 0x13: "h265"}
-AUDIO_CODEC = {0x0E: "g711a", 0x0A: "g711u"}
-
 
 def sofia_hash(password: str) -> str:
     """Compute the DVRIP/Sofia password hash.

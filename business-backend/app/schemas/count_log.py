@@ -12,11 +12,3 @@ class CountLogResponse(BaseModel):
     timestamp: datetime
 
     model_config = {"from_attributes": True}
-
-
-class CountLogFilter(BaseModel):
-    box_id: uuid.UUID | None = None
-    camera_id: str | None = None
-    movement_type: str | None = None
-    limit: int = Field(100, ge=1, le=1000)
-    offset: int = Field(0, ge=0)

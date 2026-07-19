@@ -1,7 +1,6 @@
 import logging
 import random
 from dataclasses import dataclass
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -63,7 +62,6 @@ class SimulatedBox:
     vx: float
     vy: float
     color: tuple
-    qr_image: Optional[np.ndarray] = None
 
 
 class SimulatedCameraSource:
@@ -202,33 +200,13 @@ class SimulatedCameraSource:
             random.randint(80, 200),
         )
 
-        qr_img: Optional[np.ndarray] = None
-        if has_qr:
-            qr_img = self._generate_qr_image(qr_data, max(33, min(w, h) - 12))
-
         self.boxes.append(SimulatedBox(
             qr_data=qr_data,
             has_qr=has_qr,
             x=x, y=y, w=w, h=h,
             vx=vx, vy=vy,
             color=color,
-            qr_image=qr_img,
         ))
-
-    def _generate_qr_image(self, data: str, size: int = 50) -> Optional[np.ndarray]:
-        return None
-
-    def _overlay_qr(self, frame: np.ndarray, box: SimulatedBox, x1: int, y1: int, x2: int, y2: int) -> None:
-        if box.qr_image is None:
-            return
-        qr_h, qr_w = box.qr_image.shape[:2]
-        margin = 6
-        ox = min(x1 + margin, x2 - qr_w)
-        oy = min(y1 + margin, y2 - qr_h)
-        ox = max(ox, 0)
-        oy = max(oy, 0)
-        if ox + qr_w <= frame.shape[1] and oy + qr_h <= frame.shape[0]:
-            frame[oy:oy + qr_h, ox:ox + qr_w] = box.qr_image
 
     @property
     def is_open(self) -> bool:
