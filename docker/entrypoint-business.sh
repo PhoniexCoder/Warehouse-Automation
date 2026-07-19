@@ -26,12 +26,15 @@ req = urllib.request.Request(
 try:
     resp = urllib.request.urlopen(req)
     print('Admin user created.')
-except urllib.error.HTTPError as e:
-    body = e.read().decode()
-    if 'already' in body.lower():
-        print('Admin user already exists.')
+except Exception as e:
+    if hasattr(e, 'read'):
+        body = e.read().decode()
+        if 'already' in body.lower():
+            print('Admin user already exists.')
+        else:
+            print(f'Seed warning: {e.code} {body}')
     else:
-        print(f'Seed warning: {e.code} {body}')
+        print(f'Seed warning: {e}')
 "
 
 # Keep running and wait for uvicorn
