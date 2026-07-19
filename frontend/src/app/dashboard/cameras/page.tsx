@@ -140,8 +140,8 @@ export default function CamerasPage() {
           camera_name: cameraName,
           stream_url: streamUrl,
           status: cameraStatus,
-          model_path: selectedModel ?? undefined,
-          roi: roi ?? undefined,
+          model_path: selectedModel,
+          roi: roi,
         })
       } else {
         await api.createCamera({
@@ -149,8 +149,8 @@ export default function CamerasPage() {
           camera_name: cameraName,
           stream_url: streamUrl,
           status: cameraStatus,
-          model_path: selectedModel ?? undefined,
-          roi: roi ?? undefined,
+          model_path: selectedModel,
+          roi: roi,
         })
       }
       setModalOpen(false)

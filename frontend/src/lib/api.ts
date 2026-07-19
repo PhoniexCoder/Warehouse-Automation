@@ -145,8 +145,8 @@ export const api = {
     camera_name: string
     stream_url: string
     status?: string
-    model_path?: string
-    roi?: { x: number; y: number }[]
+    model_path?: string | null
+    roi?: { x: number; y: number }[] | null
   }): Promise<Camera> => {
     const res = await client.post<ApiResponse>("/cameras", data)
     return res.data.data as Camera
@@ -155,7 +155,7 @@ export const api = {
     camera_name?: string
     stream_url?: string
     status?: string
-    model_path?: string
+    model_path?: string | null
     roi?: { x: number; y: number }[] | null
   }): Promise<Camera> => {
     const res = await client.put<ApiResponse>(`/cameras/${id}`, data)
