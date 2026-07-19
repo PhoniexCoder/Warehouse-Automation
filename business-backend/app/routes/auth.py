@@ -10,6 +10,7 @@ from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
     RefreshRequest,
+    ChangePasswordRequest,
     TokenResponse,
     UserResponse,
 )
@@ -129,3 +130,18 @@ async def deactivate_user(
         success=True,
         data=UserResponse.model_validate(user).model_dump(mode="json"),
     )
+
+
+@router.post("/change-password", summary="Change own password")
+async def change_password(
+    body: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse:
+    service = UserService(session)
+    await service.change_password(
+        user_id=user.id,
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )
+    return ApiResponse(success=True, data={"message": "Password changed"})

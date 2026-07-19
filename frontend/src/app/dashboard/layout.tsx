@@ -1,8 +1,12 @@
 "use client"
 
 import { AuthProvider, useAuth } from "@/lib/auth"
+import { api } from "@/lib/api"
 import type { ReactNode } from "react"
+import { useState, useRef, useEffect } from "react"
 import { PageLoader } from "@/components/ui/Spinner"
+import { Button } from "@/components/ui/Button"
+import { Modal } from "@/components/ui/Modal"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import clsx from "clsx"
@@ -18,6 +22,55 @@ const navItems = [
 function DashboardShell({ children }: { children: ReactNode }) {
   const { user, loading, logout } = useAuth()
   const pathname = usePathname()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [pwModalOpen, setPwModalOpen] = useState(false)
+  const [currentPw, setCurrentPw] = useState("")
+  const [newPw, setNewPw] = useState("")
+  const [confirmPw, setConfirmPw] = useState("")
+  const [pwSaving, setPwSaving] = useState(false)
+  const [pwError, setPwError] = useState("")
+  const [pwSuccess, setPwSuccess] = useState("")
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  async function handleChangePassword() {
+    setPwError("")
+    setPwSuccess("")
+    if (!currentPw || !newPw) {
+      setPwError("All fields are required")
+      return
+    }
+    if (newPw.length < 8) {
+      setPwError("New password must be at least 8 characters")
+      return
+    }
+    if (newPw !== confirmPw) {
+      setPwError("New passwords do not match")
+      return
+    }
+    setPwSaving(true)
+    try {
+      await api.changePassword({ current_password: currentPw, new_password: newPw })
+      setPwSuccess("Password changed successfully")
+      setCurrentPw("")
+      setNewPw("")
+      setConfirmPw("")
+      setTimeout(() => { setPwModalOpen(false); setPwSuccess("") }, 1500)
+    } catch {
+      setPwError("Current password is incorrect")
+    } finally {
+      setPwSaving(false)
+    }
+  }
 
   if (loading) return <PageLoader />
   if (!user) return null
@@ -82,8 +135,11 @@ function DashboardShell({ children }: { children: ReactNode }) {
             </div>
 
             {/* Profile Avatar Card */}
-            <div className="flex items-center gap-2.5 pl-2 border-l border-slate-200">
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-150 transition cursor-pointer">
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="flex items-center gap-2 px-3 py-1 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-150 transition cursor-pointer"
+              >
                 <div className="w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-sm shadow-blue-500/20">
                   {user.username.charAt(0).toUpperCase()}
                 </div>
@@ -91,16 +147,34 @@ function DashboardShell({ children }: { children: ReactNode }) {
                   <span className="text-xs font-bold text-slate-900 leading-none">{user.username}</span>
                   <span className="text-[9px] font-bold text-slate-400 font-mono tracking-wide mt-0.5 uppercase leading-none">{displayRole}</span>
                 </div>
-              </div>
-              <button
-                onClick={logout}
-                className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                title="Logout"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                <svg className="w-3.5 h-3.5 text-slate-400 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
+
+              {profileOpen && (
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-50">
+                  <button
+                    onClick={() => { setProfileOpen(false); setPwModalOpen(true) }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                    Change Password
+                  </button>
+                  <div className="border-t border-slate-100 my-1" />
+                  <button
+                    onClick={logout}
+                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
 
           </div>
@@ -134,6 +208,49 @@ function DashboardShell({ children }: { children: ReactNode }) {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {children}
       </main>
+
+      {/* Change Password Modal */}
+      <Modal open={pwModalOpen} onClose={() => setPwModalOpen(false)} title="Change Password" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Current Password</label>
+            <input
+              type="password"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              className="input-field"
+              placeholder="Enter current password"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">New Password</label>
+            <input
+              type="password"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              className="input-field"
+              placeholder="At least 8 characters"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Confirm New Password</label>
+            <input
+              type="password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              className="input-field"
+              placeholder="Repeat new password"
+            />
+          </div>
+          {pwError && <p className="text-sm text-red-600">{pwError}</p>}
+          {pwSuccess && <p className="text-sm text-green-600">{pwSuccess}</p>}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setPwModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleChangePassword} loading={pwSaving}>Change Password</Button>
+          </div>
+        </div>
+      </Modal>
 
     </div>
   )

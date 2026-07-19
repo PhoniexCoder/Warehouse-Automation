@@ -113,6 +113,17 @@ class UserService:
         LOGGER.info("User deactivated: %s", user.username)
         return user
 
+    async def change_password(
+        self, user_id: uuid.UUID, current_password: str, new_password: str
+    ) -> User:
+        user = await self.get(user_id)
+        if not _verify_password(current_password, user.hashed_password):
+            raise UnauthorizedError("Current password is incorrect")
+        user.hashed_password = _hash_password(new_password)
+        await self._session.flush()
+        LOGGER.info("Password changed: %s", user.username)
+        return user
+
     async def _get_by_username(self, username: str) -> User | None:
         stmt = select(User).where(User.username == username)
         result = await self._session.execute(stmt)

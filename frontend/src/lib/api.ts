@@ -249,4 +249,12 @@ export const api = {
     const res = await client.get<ApiResponse>("/alerts", { params })
     return (res.data.data as Alert[]) || []
   },
+
+  // Auth
+  changePassword: async (data: {
+    current_password: string
+    new_password: string
+  }): Promise<void> => {
+    await client.post<ApiResponse>("/change-password", data)
+  },
 }
