@@ -20,7 +20,7 @@ const navItems = [
 ]
 
 function DashboardShell({ children }: { children: ReactNode }) {
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, isImpersonating, originalUser, endImpersonation } = useAuth()
   const pathname = usePathname()
   const [profileOpen, setProfileOpen] = useState(false)
   const [pwModalOpen, setPwModalOpen] = useState(false)
@@ -75,12 +75,34 @@ function DashboardShell({ children }: { children: ReactNode }) {
   if (loading) return <PageLoader />
   if (!user) return null
 
-  // Capitalize role for display
   const displayRole = user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase() : "Operator"
+  const isAdmin = user.role === "SUPER_ADMIN" || user.role === "ADMIN"
+
+  const filteredNavItems = isAdmin
+    ? [...navItems, { href: "/dashboard/users", label: "Users" }]
+    : navItems
 
   return (
     <div className="min-h-screen bg-[#f5f7fa] text-slate-800 flex flex-col font-sans">
       
+      {/* Impersonation Banner */}
+      {isImpersonating && originalUser && (
+        <div className="bg-amber-500 text-white px-4 py-2 flex items-center justify-center gap-3 text-sm font-medium z-30 relative">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span>
+            Viewing as <strong>{user?.username}</strong> ({displayRole})
+          </span>
+          <button
+            onClick={endImpersonation}
+            className="ml-2 px-3 py-0.5 bg-white/20 hover:bg-white/30 rounded-full text-xs font-bold transition-colors cursor-pointer"
+          >
+            Switch Back
+          </button>
+        </div>
+      )}
+
       {/* Top Header Navigation */}
       <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-[0_2px_15px_rgba(0,0,0,0.015)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -96,7 +118,7 @@ function DashboardShell({ children }: { children: ReactNode }) {
 
           {/* Center: Pill Navigation Menu (hidden on mobile, expandable menu on mobile optional) */}
           <nav className="hidden md:flex items-center bg-[#f1f3f7] p-1 rounded-full border border-slate-200/50">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               // Active status checks if route starts with the link
               const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
               return (
@@ -183,7 +205,7 @@ function DashboardShell({ children }: { children: ReactNode }) {
         {/* Mobile Navigation Row */}
         <div className="md:hidden border-t border-slate-100 bg-white/95 py-2 overflow-x-auto whitespace-nowrap scrollbar-none">
           <div className="flex items-center px-4 gap-2">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
               return (
                 <Link

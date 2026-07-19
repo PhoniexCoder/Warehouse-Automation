@@ -5,11 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 
-from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
 from app.models.user import User, UserRole
 from app.auth.jwt_handler import (
     create_access_token,
     create_refresh_token,
+    create_impersonation_token,
     decode_token,
     REFRESH_TOKEN_KEY,
 )
@@ -123,6 +124,30 @@ class UserService:
         await self._session.flush()
         LOGGER.info("Password changed: %s", user.username)
         return user
+
+    async def impersonate(
+        self, target_user_id: uuid.UUID, impersonator_id: uuid.UUID
+    ) -> tuple[str, str, User]:
+        target = await self.get(target_user_id)
+        if not target.is_active:
+            raise UnauthorizedError("Cannot impersonate a deactivated user")
+
+        impersonator = await self.get(impersonator_id)
+        if impersonator.role != UserRole.SUPER_ADMIN:
+            raise ForbiddenError("Only super admins can impersonate users")
+
+        access_token = create_impersonation_token(
+            subject=str(target.id),
+            role=target.role.value,
+            impersonator_id=str(impersonator.id),
+        )
+        refresh_token = create_refresh_token(subject=str(target.id))
+
+        LOGGER.info(
+            "Impersonation started: admin=%s -> target=%s",
+            impersonator.username, target.username,
+        )
+        return access_token, refresh_token, target
 
     async def _get_by_username(self, username: str) -> User | None:
         stmt = select(User).where(User.username == username)

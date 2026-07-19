@@ -301,4 +301,14 @@ export const api = {
   }): Promise<void> => {
     await client.post<ApiResponse>("/change-password", data)
   },
+
+  // Users
+  listUsers: async (): Promise<User[]> => {
+    const res = await client.get<ApiResponse>("/users")
+    return (res.data.data as User[]) || []
+  },
+  impersonateUser: async (userId: string): Promise<TokenData & { target_user: User }> => {
+    const res = await client.post<ApiResponse>(`/impersonate/${userId}`)
+    return res.data.data as TokenData & { target_user: User }
+  },
 }

@@ -16,7 +16,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.auth.user_service import UserService
-from app.auth.permissions import require_admin, get_current_user
+from app.auth.permissions import require_admin, require_super_admin, get_current_user
 from app.models.user import UserRole, User
 
 LOGGER = logging.getLogger(__name__)
@@ -150,3 +150,25 @@ async def change_password(
         new_password=body.new_password,
     )
     return ApiResponse(success=True, data={"message": "Password changed"})
+
+
+@router.post("/impersonate/{user_id}", summary="Impersonate a user (super admin only)")
+async def impersonate_user(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_super_admin),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse:
+    service = UserService(session)
+    access_token, refresh_token, target = await service.impersonate(
+        target_user_id=user_id,
+        impersonator_id=admin.id,
+    )
+    return ApiResponse(
+        success=True,
+        data={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "target_user": UserResponse.model_validate(target).model_dump(mode="json"),
+        },
+    )

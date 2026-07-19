@@ -9,7 +9,7 @@ from app.core.config import SETTINGS
 from app.core.exceptions import UnauthorizedError, ForbiddenError
 from app.database.session import get_session
 from app.auth.user_service import UserService
-from app.auth.jwt_handler import decode_token
+from app.auth.jwt_handler import decode_token, IMPERSONATION_TOKEN_KEY
 from app.models.user import User, UserRole
 
 LOGGER = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ async def get_current_user(
 
     user_id = payload.get("sub")
     token_type = payload.get("type")
-    if not user_id or token_type != "access":
+    if not user_id or token_type not in ("access", IMPERSONATION_TOKEN_KEY):
         raise UnauthorizedError("Invalid token type")
 
     service = UserService(session)
