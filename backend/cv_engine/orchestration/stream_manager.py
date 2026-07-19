@@ -356,7 +356,7 @@ class CameraStream:
             codec = "h264"
             if "codec" in meta:
                 codec_byte = meta["codec"]
-                if codec_byte in (3, 0x12, 0x13):
+                if codec_byte in (3, 0x12, 0x13, 0x53):
                     codec = "h265"
 
             self._total_frames += 1
