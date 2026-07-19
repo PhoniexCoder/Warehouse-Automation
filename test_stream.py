@@ -1,6 +1,7 @@
 """
-Local DVRIP streaming test — connects directly to the NVR, decodes H.264/H.265
-I-frames via FFmpeg, and displays them in a GUI window.
+Local DVRIP streaming test — connects directly to the NVR via the real
+DVRIPClient, decodes H.264/H.265 I-frames via FFmpeg, and displays them
+in a GUI window.
 
 Usage:
     python test_stream.py                          # defaults: 192.168.1.35:34567 channel 0
@@ -11,282 +12,26 @@ Usage:
 import argparse
 import logging
 import os
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-import socket
-import threading
 from pathlib import Path
+
+# Add backend to path so we can import the real DVRIPClient
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
+
+from cv_engine.services.dvrip_client import (
+    DVRIPClient, DVRIPConnectionError, DVRIPAuthError, DVRIPTimeout,
+)
+from cv_engine.services.dvrip_frames import TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG
 
 # ─── Logging ──────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("test_stream")
-
-# ─── Constants ────────────────────────────────────────────────────────────
-CMD_LOGIN = 1000
-CMD_KEEPALIVE = 1006
-CMD_OPMONITOR_CLAIM = 1413
-CMD_OPMONITOR_START = 1410
-
-TYPE_I_FRAME = 0xFC
-TYPE_P_FRAME = 0xFD
-TYPE_JPEG = 0xFE
-TYPE_AUDIO = 0xFA
-TYPE_INFO = 0xF9
-
-FRAME_READ_TIMEOUT = 10.0
-KEEPALIVE_INTERVAL = 15.0
-
-
-def sofia_hash(password: str) -> str:
-    """DVRIP/Sofia password hash."""
-    md5 = __import__("hashlib").md5(password.encode("utf-8")).digest()
-    chars = bytearray(b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-    out = []
-    for i in range(8):
-        a = md5[i]
-        b = md5[i + 8]
-        idx = (a + b) % 62
-        out.append(chr(chars[idx]))
-    return "".join(out)
-
-
-class DVRIPTestClient:
-    """Minimal DVRIP client for testing — login, claim, start, read frames."""
-
-    def __init__(self, host: str, port: int, username: str, password: str):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self._sock: socket.socket | None = None
-        self._session = 0
-        self._seq = 0
-        self._lock = threading.Lock()
-        self._connected = False
-        self._keepalive_thread: threading.Thread | None = None
-        self._stop = threading.Event()
-        self._read_buf = bytearray()
-
-        # Device info
-        self.channel_count = 16
-        self.device_name = ""
-
-    def connect(self, channel: int = 0) -> None:
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.settimeout(10.0)
-        self._sock.connect((self.host, self.port))
-        self._connected = True
-        log.info("TCP connected to %s:%d", self.host, self.port)
-
-        self._login()
-        self._opmonitor_claim()
-        self._opmonitor_start(channel)
-        self._start_keepalive()
-
-    def _send(self, cmd: int, payload: bytes) -> int:
-        with self._lock:
-            seq = self._seq
-            self._seq += 1
-            header = bytearray(20)
-            header[0] = 0xFF
-            struct.pack_into("<I", header, 4, self._session)
-            struct.pack_into("<I", header, 8, seq)
-            struct.pack_into("<H", header, 14, cmd)
-            struct.pack_into("<I", header, 16, len(payload))
-            self._sock.sendall(bytes(header) + payload)
-        return seq
-
-    def _recv_exact(self, n: int) -> bytes:
-        buf = bytearray()
-        while len(buf) < n:
-            chunk = self._sock.recv(n - len(buf))
-            if not chunk:
-                raise ConnectionError("Connection closed")
-            buf.extend(chunk)
-        return bytes(buf)
-
-    def _read_packet(self):
-        """Read one complete DVRIP packet, return (cmd, seq, payload) or None on timeout."""
-        while not self._stop.is_set():
-            # Check for buffered data from _opmonitor_start
-            if self._read_buf:
-                # Try to parse a packet from the buffer
-                if len(self._read_buf) >= 20:
-                    if self._read_buf[0] != 0xFF:
-                        # Binary video data pushed by NVR — not a DVRIP packet header
-                        # This IS the video data, parse as a raw frame
-                        data = bytes(self._read_buf)
-                        self._read_buf.clear()
-                        return (1404, 0, data)
-                    # Regular DVRIP response
-                    cmd_val = struct.unpack_from("<H", self._read_buf, 14)[0]
-                    payload_len = struct.unpack_from("<I", self._read_buf, 16)[0]
-                    if len(self._read_buf) >= 20 + payload_len:
-                        payload = self._read_buf[20:20 + payload_len]
-                        self._read_buf = self._read_buf[20 + payload_len:]
-                        return (cmd_val, 0, payload)
-                # Need more data — fall through to socket read
-                break
-
-            # Read 20-byte header from socket
-            try:
-                header = self._recv_exact(20)
-            except (socket.timeout, ConnectionError, OSError):
-                return None
-
-            if header[0] != 0xFF:
-                log.warning("Unexpected magic byte: 0x%02X", header[0])
-                continue
-
-            cmd_val = struct.unpack_from("<H", header, 14)[0]
-            payload_len = struct.unpack_from("<I", header, 16)[0]
-
-            if payload_len > 0:
-                payload = self._recv_exact(payload_len)
-            else:
-                payload = b""
-
-            return (cmd_val, 0, payload)
-
-        return None
-
-    def _login(self) -> None:
-        pwd_hash = sofia_hash(self.password)
-        login_json = (
-            '{"EncryptType":"MD5","LoginType":"DVRIP-Web",'
-            f'"PassWord":"{pwd_hash}","UserName":"{self.username}"'
-            "}\n\x00"
-        )
-        self._send(CMD_LOGIN, login_json.encode())
-        resp = self._recv_exact(20)
-        ret = struct.unpack_from("<H", resp, 14)[0]
-        payload_len = struct.unpack_from("<I", resp, 16)[0]
-        if payload_len > 0:
-            body = self._recv_exact(payload_len)
-        else:
-            body = b""
-        if ret == 1000:
-            self._session = struct.unpack_from("<I", body, 0)[0]
-            # Parse channel count from response JSON
-            try:
-                import json
-                json_str = body[4:].split(b"\x00")[0].decode("utf-8", errors="replace")
-                data = json.loads(json_str)
-                net_common = data.get("Ret", data)
-                if isinstance(data, dict):
-                    for key in data:
-                        if "NetCommon" in str(data[key]):
-                            net_common = data[key]
-                            break
-                    if "ChannelNum" in str(data):
-                        nc = None
-                        for k, v in data.items():
-                            if isinstance(v, dict) and "ChannelNum" in v:
-                                nc = v
-                                break
-                        if nc:
-                            self.channel_count = nc.get("ChannelNum", 16)
-                            self.device_name = nc.get("HostName", "")
-            except Exception:
-                pass
-            log.info("Login OK, session=0x%08X, channels=%d, device=%s",
-                     self._session, self.channel_count, self.device_name)
-        else:
-            raise ConnectionError(f"Login failed with ret={ret}")
-
-    def _opmonitor_claim(self) -> None:
-        claim_json = (
-            '{"SessionID":"%08X","OPMonitor":{'
-            '"Cmd":"OPMonitorClaim","Action":"Start",'
-            '"Parameter":{"Channel":0,"CombineMode":"Two","StreamType":"Main"}}}\n\x00'
-            % self._session
-        )
-        self._send(CMD_OPMONITOR_CLAIM, claim_json.encode())
-        resp = self._recv_exact(20)
-        ret = struct.unpack_from("<H", resp, 14)[0]
-        payload_len = struct.unpack_from("<I", resp, 16)[0]
-        if payload_len > 0:
-            self._recv_exact(payload_len)
-        log.info("OPMonitor Claim ret=%d", ret)
-
-    def _opmonitor_start(self, channel: int = 0) -> None:
-        start_json = (
-            '{"SessionID":"%08X","OPMonitor":{'
-            '"Cmd":"OPMonitorStart","Action":"Start",'
-            '"Parameter":{"Channel":%d,"CombineMode":"Two","StreamType":"Main"}}}\n\x00'
-            % (self._session, channel)
-        )
-        self._send(CMD_OPMONITOR_START, start_json.encode())
-        # NVR may start pushing video immediately without a JSON response
-        time.sleep(0.5)
-        log.info("OPMonitor Start sent for channel %d", channel)
-
-    def _start_keepalive(self) -> None:
-        def _keepalive_loop():
-            while not self._stop.is_set():
-                self._stop.wait(KEEPALIVE_INTERVAL)
-                if not self._stop.is_set():
-                    try:
-                        self._send(CMD_KEEPALIVE, b"")
-                    except Exception:
-                        break
-
-        self._keepalive_thread = threading.Thread(target=_keepalive_loop, daemon=True)
-        self._keepalive_thread.start()
-
-    def iter_frames(self):
-        """Yield (ptype, payload, meta_dict) for video frames."""
-        for pkt in self._read_packets():
-            if pkt is None:
-                continue
-            cmd_val, seq, payload = pkt
-            if cmd_val == 1404:
-                # Binary video data pushed by NVR
-                data = payload
-                if len(data) < 4:
-                    continue
-                ptype = data[0]
-                if ptype in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
-                    meta = {}
-                    if ptype == TYPE_I_FRAME and len(data) >= 16:
-                        codec_byte = data[1]
-                        meta["codec"] = codec_byte
-                        meta["fps"] = data[2]
-                        meta["width"] = struct.unpack_from("<H", data, 4)[0] * 8
-                        meta["height"] = struct.unpack_from("<H", data, 6)[0] * 8
-                        frame_data = data[16:]
-                    elif ptype == TYPE_JPEG:
-                        frame_data = data[1:]
-                    else:
-                        frame_data = data[1:]
-                    yield (ptype, frame_data, meta)
-            elif cmd_val == 1000:
-                # Login response (shouldn't happen here but handle)
-                pass
-
-    def _read_packets(self):
-        """Low-level packet reader."""
-        while not self._stop.is_set():
-            pkt = self._read_packet()
-            if pkt is None:
-                continue
-            yield pkt
-
-    def close(self) -> None:
-        self._stop.set()
-        if self._sock:
-            try:
-                self._sock.close()
-            except Exception:
-                pass
-        self._connected = False
-        log.info("Connection closed")
 
 
 def decode_i_frame_to_jpeg(raw_nal: bytes, codec: str = "h264") -> bytes | None:
@@ -314,7 +59,6 @@ def decode_i_frame_to_jpeg(raw_nal: bytes, codec: str = "h264") -> bytes | None:
             with open(output_path, "rb") as f:
                 jpeg = f.read()
 
-        # Cleanup
         try:
             os.unlink(input_path)
             if os.path.exists(output_path):
@@ -360,17 +104,23 @@ def main():
             log.warning("cv2 not available — falling back to headless mode")
             args.no_gui = True
 
-    # Connect to NVR
+    # Connect to NVR using the real DVRIPClient
     log.info("Connecting to %s:%d channel=%d ...", args.host, args.port, args.channel)
-    client = DVRIPTestClient(args.host, args.port, args.username, args.password)
+    client = DVRIPClient(args.host, args.port, args.username, args.password)
 
     try:
         client.connect(channel=args.channel)
-    except Exception as e:
+    except DVRIPAuthError as e:
+        log.error("Auth failed: %s", e)
+        sys.exit(1)
+    except DVRIPConnectionError as e:
         log.error("Connection failed: %s", e)
         sys.exit(1)
 
-    log.info("Connected — waiting for I-frames...")
+    log.info(
+        "Connected — device=%s channels=%d max_conn=%d — waiting for I-frames...",
+        client.device_name, client.channel_count, client.max_connections,
+    )
 
     frame_count = 0
     last_frame_time = time.time()
@@ -378,9 +128,10 @@ def main():
     output_dir.mkdir(exist_ok=True)
 
     window_name = f"DVRIP Stream — {args.host} ch{args.channel}"
+    fps_display = 0.0
 
     try:
-        for ptype, payload, meta in client.iter_frames():
+        for ptype, payload, meta in client.iter_packets():
             if frame_count >= args.max_frames:
                 log.info("Captured %d frames, done.", args.max_frames)
                 break
@@ -392,15 +143,16 @@ def main():
             # For JPEG frames, payload is already JPEG
             if ptype == TYPE_JPEG:
                 jpeg_bytes = payload
-                log.info("[frame %d] JPEG packet (%d bytes)", frame_count + 1, len(jpeg_bytes))
+                log.info("[frame %d] JPEG packet (%d bytes) fps=%.1f",
+                         frame_count + 1, len(jpeg_bytes), fps_display)
             elif ptype == TYPE_I_FRAME:
                 codec_byte = meta.get("codec", 2)
                 codec = "h265" if codec_byte in (3, 0x12, 0x13) else "h264"
                 width = meta.get("width", 0)
                 height = meta.get("height", 0)
 
-                log.info("[frame %d] I-frame: codec=%s %dx%d (%d bytes)",
-                         frame_count + 1, codec, width, height, len(payload))
+                log.info("[frame %d] I-frame: codec=%s %dx%d (%d bytes) fps=%.1f",
+                         frame_count + 1, codec, width, height, len(payload), fps_display)
 
                 jpeg_bytes = decode_i_frame_to_jpeg(payload, codec)
                 if not jpeg_bytes:
@@ -414,7 +166,6 @@ def main():
             # Save to disk
             frame_path = output_dir / f"frame_{frame_count:04d}.jpg"
             frame_path.write_bytes(jpeg_bytes)
-            log.info("[frame %d] Saved to %s", frame_count + 1, frame_path)
 
             # Display in GUI
             if cv2 is not None:
@@ -422,20 +173,30 @@ def main():
                 arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
                 frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
                 if frame is not None:
+                    # Overlay FPS
+                    cv2.putText(
+                        frame, f"FPS: {fps_display:.1f} | Frame {frame_count+1}",
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2,
+                    )
                     cv2.imshow(window_name, frame)
                     key = cv2.waitKey(1) & 0xFF
-                    if key == 27 or key == ord("q"):  # ESC or Q to quit
+                    if key == 27 or key == ord("q"):
                         log.info("User quit")
                         break
 
             frame_count += 1
             now = time.time()
-            fps = 1.0 / (now - last_frame_time) if last_frame_time else 0
+            dt = now - last_frame_time
+            if dt > 0:
+                fps_display = 1.0 / dt
             last_frame_time = now
-            log.info("  FPS: %.1f", fps)
 
     except KeyboardInterrupt:
         log.info("Interrupted")
+    except DVRIPTimeout:
+        log.warning("NVR timed out — no data received")
+    except Exception as e:
+        log.error("Error: %s", e, exc_info=True)
     finally:
         client.close()
         if cv2 is not None:
