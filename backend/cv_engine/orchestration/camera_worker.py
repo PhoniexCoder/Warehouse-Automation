@@ -87,8 +87,12 @@ class CameraWorker:
                     ret, frame, pre_dets = self._read_frame()
 
                     if ret and frame is not None:
-                        if frame.mean() < 2.0:
-                            LOGGER.warning("[%s] Black frame / video loss detected", self.camera_id)
+                        # Robust check for digitally generated black frames / video loss text overlays
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        dark_ratio = np.sum(gray < 15) / gray.size
+                        if dark_ratio > 0.98:
+                            LOGGER.warning("[%s] Black frame / video loss text overlay detected (dark ratio: %.2f)",
+                                           self.camera_id, dark_ratio)
                             ret = False
                             frame = None
 
