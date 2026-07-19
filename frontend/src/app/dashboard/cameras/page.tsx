@@ -201,15 +201,15 @@ export default function CamerasPage() {
   const fetchCamerasData = useCallback(async () => {
     try {
       const [cams, whs, nvrList] = await Promise.all([
-        api.getCameras(),
-        api.getWarehouses(),
-        api.getNvrs(),
+        api.getCameras().catch((err) => { console.error("Error fetching cameras:", err); return [] }),
+        api.getWarehouses().catch((err) => { console.error("Error fetching warehouses:", err); return [] }),
+        api.getNvrs().catch((err) => { console.error("Error fetching nvrs:", err); return [] }),
       ])
       setCameras(cams)
       setWarehouses(whs)
       setNvrs(nvrList)
-    } catch {
-      // silent
+    } catch (err) {
+      console.error("Failed to load dashboard metadata:", err)
     } finally {
       setLoading(false)
     }

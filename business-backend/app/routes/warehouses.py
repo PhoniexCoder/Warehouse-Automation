@@ -9,7 +9,7 @@ from app.schemas.common import ApiResponse
 from app.schemas.warehouse import WarehouseCreate, WarehouseUpdate, WarehouseResponse
 from app.services.warehouse_service import WarehouseService
 from app.services.audit_service import AuditService
-from app.auth.permissions import require_admin, require_manager_up
+from app.auth.permissions import require_admin, require_manager_up, get_current_user
 from app.models.user import User
 
 LOGGER = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ async def create_warehouse(
 
 @router.get("/warehouses", summary="List warehouses")
 async def list_warehouses(
-    _mgr: User = Depends(require_manager_up),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = WarehouseService(session)
@@ -49,7 +49,7 @@ async def list_warehouses(
 @router.get("/warehouses/{warehouse_id}", summary="Get warehouse by ID")
 async def get_warehouse(
     warehouse_id: uuid.UUID,
-    _mgr: User = Depends(require_manager_up),
+    _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = WarehouseService(session)
