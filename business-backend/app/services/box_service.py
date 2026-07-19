@@ -20,7 +20,11 @@ class BoxService:
         camera_id: str,
         qr_data: str | None = None,
     ) -> Box:
-        stmt = select(Box).where(Box.tracking_id == tracking_id).limit(1)
+        stmt = (
+            select(Box)
+            .where(Box.tracking_id == tracking_id, Box.camera_id == str(camera_id))
+            .limit(1)
+        )
         result = await self._session.execute(stmt)
         box = result.scalar_one_or_none()
 

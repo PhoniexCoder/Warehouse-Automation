@@ -77,7 +77,7 @@ export default function DashboardPage() {
           const logDate = new Date(log.timestamp)
           const isTargetCam = targetCamId
             ? log.camera_id === targetCamId
-            : log.camera_id.toLowerCase().includes(`cam_${r + 1}`)
+            : (log.camera_id && typeof log.camera_id === "string" && log.camera_id.toLowerCase().includes(`cam_${r + 1}`))
           const isTargetMonth = logDate.getMonth() === c && logDate.getFullYear() === currentYear
           return isTargetCam && isTargetMonth
         }).length
