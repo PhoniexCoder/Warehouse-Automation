@@ -245,10 +245,12 @@ export const api = {
   },
   discoverNvr: async (payload: { ip: string; port?: number; username: string; password: string }): Promise<any> => {
     const res = await client.post<ApiResponse>("/nvrs/discover", payload)
+    if (!res.data.success) throw new Error(res.data.error?.message || "Discover failed")
     return res.data.data
   },
   discoverNvrBroadcast: async (): Promise<any[]> => {
     const res = await client.post<ApiResponse>("/nvrs/discover-broadcast")
+    if (!res.data.success) throw new Error(res.data.error?.message || "Broadcast discovery failed")
     return (res.data.data as any[]) || []
   },
 
