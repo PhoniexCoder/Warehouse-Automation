@@ -108,9 +108,21 @@ export default function DashboardPage() {
 
   if (loading) return <Spinner />
 
+  // Filter out dead/reconnecting/unregistered channels to match the active cameras list
+  const visibleCams = cameras.filter((c) => {
+    if (c.status === "active" || c.status === "online") {
+      const hStatus = c.health?.status
+      if (hStatus === "reconnecting" || hStatus === "dead" || hStatus === "error") {
+        return false
+      }
+      return true
+    }
+    return false
+  })
+
   // Real Camera online calculation
-  const onlineCameras = cameras.filter((c) => c.status === "active" || c.status === "online").length
-  const totalCameras = cameras.length
+  const onlineCameras = visibleCams.filter((c) => c.health?.status === "running" || c.health?.status === "healthy").length
+  const totalCameras = visibleCams.length
 
   // Filtered Activities / Carton dispatch logs
   const getFilteredLogs = () => {

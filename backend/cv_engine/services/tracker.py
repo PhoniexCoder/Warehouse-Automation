@@ -28,6 +28,89 @@ class TrackerError(Exception):
     pass
 
 
+class FallbackIOUTracker:
+    def __init__(self, iou_threshold: float = 0.3, max_lost: int = 30) -> None:
+        self.iou_threshold = iou_threshold
+        self.max_lost = max_lost
+        self.tracks: dict[int, dict] = {}
+        self.next_id = 1
+
+    @staticmethod
+    def calculate_iou(boxA: list[int] | list[float], boxB: list[int] | list[float]) -> float:
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+        interArea = max(0.0, float(xB - xA)) * max(0.0, float(yB - yA))
+        boxAArea = float((boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
+        boxBArea = float((boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
+        iou = interArea / (boxAArea + boxBArea - interArea + 1e-6)
+        return iou
+
+    def update(self, detections: list[dict]) -> list[dict]:
+        matched_tracks = set()
+        matched_detections = set()
+        tracked = []
+
+        existing_track_ids = list(self.tracks.keys())
+        matches = []
+        for i, det in enumerate(detections):
+            best_iou = -1.0
+            best_track_id = None
+            for tid in existing_track_ids:
+                if tid in matched_tracks:
+                    continue
+                iou = self.calculate_iou(det["bbox"], self.tracks[tid]["bbox"])
+                if iou > best_iou:
+                    best_iou = iou
+                    best_track_id = tid
+            
+            if best_track_id is not None and best_iou >= self.iou_threshold:
+                matches.append((i, best_track_id, best_iou))
+        
+        matches.sort(key=lambda x: x[2], reverse=True)
+        
+        for det_idx, tid, iou in matches:
+            if det_idx in matched_detections or tid in matched_tracks:
+                continue
+            matched_detections.add(det_idx)
+            matched_tracks.add(tid)
+            self.tracks[tid]["bbox"] = detections[det_idx]["bbox"]
+            self.tracks[tid]["lost"] = 0
+            
+            tracked.append({
+                "track_id": tid,
+                "bbox": detections[det_idx]["bbox"],
+                "confidence": detections[det_idx].get("confidence", 0.5),
+            })
+
+        for i, det in enumerate(detections):
+            if i not in matched_detections:
+                tid = self.next_id
+                self.next_id += 1
+                self.tracks[tid] = {
+                    "bbox": det["bbox"],
+                    "lost": 0
+                }
+                tracked.append({
+                    "track_id": tid,
+                    "bbox": det["bbox"],
+                    "confidence": det.get("confidence", 0.5),
+                })
+
+        lost_ids = []
+        for tid in list(self.tracks.keys()):
+            if tid not in matched_tracks:
+                self.tracks[tid]["lost"] += 1
+                if self.tracks[tid]["lost"] > self.max_lost:
+                    lost_ids.append(tid)
+        
+        for tid in lost_ids:
+            self.tracks.pop(tid, None)
+
+        return tracked
+
+
 class ObjectTracker:
     def __init__(
         self,
@@ -60,9 +143,9 @@ class ObjectTracker:
             self._tracker = _DeepSort()
             self._method = "deepsort"
         else:
-            raise TrackerError(
-                "No tracking backend available. Install boxmot or deep_sort_realtime."
-            )
+            LOGGER.info("No native tracking backends available. Initialising built-in FallbackIOUTracker.")
+            self._tracker = FallbackIOUTracker(iou_threshold=0.3, max_lost=track_buffer)
+            self._method = "fallback_iou"
 
         LOGGER.info(
             "ObjectTracker(method=%s, track_buffer=%d, iou_threshold=%.2f)",
@@ -82,8 +165,10 @@ class ObjectTracker:
 
         if self._method == "bytetrack":
             tracked = self._update_bytetrack(detections, frame)
-        else:
+        elif self._method == "deepsort":
             tracked = self._update_deepsort(detections, frame)
+        else:
+            tracked = self._tracker.update(detections)
 
         if not tracked:
             self._n_updates += 1
@@ -108,8 +193,10 @@ class ObjectTracker:
 
         if self._method == "bytetrack" and _HAS_BYTETRACK:
             self._tracker = _ByteTrack(track_buffer=self._track_buffer)
-        elif _HAS_DEEPSORT:
+        elif self._method == "deepsort" and _HAS_DEEPSORT:
             self._tracker = _DeepSort()
+        elif self._method == "fallback_iou":
+            self._tracker = FallbackIOUTracker(iou_threshold=self._iou_threshold, max_lost=self._track_buffer)
         LOGGER.info("Tracker reinitialised")
 
     # ------------------------------------------------------------------
