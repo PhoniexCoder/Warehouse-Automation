@@ -157,6 +157,7 @@ def main():
     if args.debug:
         logging.getLogger("cv_engine.services.dvrip_client").setLevel(logging.DEBUG)
         logging.getLogger("cv_engine.services.dvrip_frames").setLevel(logging.DEBUG)
+        logging.getLogger("test_stream").setLevel(logging.DEBUG)
 
     cv2 = None
     if not args.no_gui:
@@ -228,6 +229,12 @@ def main():
         for ptype, payload, meta in client.iter_packets():
             packet_count += 1
             elapsed = time.time() - start_time
+
+            # Log every packet type for debugging
+            if packet_count <= 30 or packet_count % 50 == 0:
+                type_names = {0xFC: "I-FRAME", 0xFD: "P-FRAME", 0xFE: "JPEG", 0xFA: "AUDIO", 0xF9: "INFO"}
+                type_name = type_names.get(ptype, f"0x{ptype:02X}")
+                log.info("[pkt #%d] type=%s payload=%d meta=%s", packet_count, type_name, len(payload), meta)
 
             if elapsed > args.timeout and frame_count == 0:
                 log.error("TIMEOUT: No frames received in %d seconds. NVR may not be streaming on channel %d.",
