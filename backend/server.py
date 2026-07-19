@@ -68,6 +68,7 @@ from urllib.parse import urlparse
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
 
 _DVRIP_URL_RE = re.compile(r"^dvrip://([^:]+):([^@]+)@([^:]+):(\d+)/(\d+)$")
+_RTSP_URL_RE = re.compile(r"^rtsp://")
 
 
 def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> None:
@@ -181,18 +182,24 @@ def sync_cameras_loop():
                             except Exception:
                                 LOGGER.exception("VMS: Failed to start DVRIP camera %s", cam_id)
 
-                    # Start RTSP cameras (no staggering needed)
+                    # Start RTSP cameras through StreamManager (unified WebSocket delivery)
                     for cam in rtsp_cameras:
                         try:
                             cam_id = cam["id"]
                             stream_url = cam.get("stream_url", "")
+
+                            # Start RTSP stream through StreamManager for WebSocket delivery
+                            stream_manager.start_camera_rtsp(
+                                camera_id=cam_id,
+                                rtsp_url=stream_url,
+                            )
+
+                            # Also start detection worker (reads from FrameStore)
                             config = {
-                                "source_type": "rtsp",
-                                "source": stream_url,
+                                "source_type": "file_store",
                                 "line_y": 500,
                                 "display_name": cam.get("camera_name", ""),
                                 "target_fps": 5,
-                                "frame_skip": 2,
                                 "model_path": cam.get("model_path") or "",
                                 "roi": cam.get("roi"),
                                 "detection_conf": 0.55,
@@ -219,8 +226,8 @@ def sync_cameras_loop():
                                         camera_manager.start_camera(cam_id, config)
                             else:
                                 config["_hash"] = _config_hash(config)
-                                LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
-                                             cam.get("camera_name"), cam_id, config["source_type"])
+                                LOGGER.info("VMS: Starting camera worker for %s (%s) [rtsp->file_store]",
+                                             cam.get("camera_name"), cam_id)
                                 camera_manager.start_camera(cam_id, config)
                         except Exception:
                             LOGGER.exception("VMS: Failed to start RTSP camera %s", cam_id)
@@ -232,11 +239,11 @@ def sync_cameras_loop():
                             LOGGER.info("VMS: Stopping camera worker for %s", c_id)
                             camera_manager.stop_camera(c_id)
 
-                    # Stop DVRIP streams for inactive cameras
+                    # Stop streams for inactive cameras (both DVRIP and RTSP)
                     stream_status = stream_manager.status
                     for s_cam_id in stream_status:
                         if s_cam_id not in active_ids:
-                            LOGGER.info("VMS: Stopping DVRIP stream for %s", s_cam_id)
+                            LOGGER.info("VMS: Stopping stream for %s", s_cam_id)
                             stream_manager.stop_camera(s_cam_id)
 
         except Exception:

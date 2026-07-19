@@ -14,12 +14,10 @@ import logging
 import os
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
 
-# Add backend to path so we can import the real DVRIPClient
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 from cv_engine.services.dvrip_client import (
@@ -27,7 +25,8 @@ from cv_engine.services.dvrip_client import (
 )
 from cv_engine.services.dvrip_frames import TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG
 
-# ─── Logging ──────────────────────────────────────────────────────────────
+_NAL_TERM = b"\x00\x00\x00\x01"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -36,10 +35,13 @@ log = logging.getLogger("test_stream")
 
 
 class PersistentDecoder:
-    """Persistent FFmpeg process that decodes H.264/H.265 to JPEG via pipes.
+    """Persistent FFmpeg decoder for raw H.264/H.265 to JPEG via pipes.
 
-    Maintains decoder state between frames, allowing P-frame decoding
-    at full NVR frame rate (25+ FPS).
+    Fixes applied:
+    - Trailing Annex B start code after each NAL payload (HEVC demuxer fix)
+    - stderr drained in background thread (prevents Windows pipe deadlock)
+    - Low-latency FFmpeg flags (nobuffer, low_delay, probesize)
+    - Frame counter-based signaling (no Event race condition)
     """
 
     def __init__(self, codec: str = "h264", jpeg_quality: int = 3):
@@ -48,16 +50,22 @@ class PersistentDecoder:
         self._proc = None
         self._running = False
         self._reader_thread = None
-        self._latest_jpeg = None
-        self._new_frame = threading.Event()
-        self._lock = threading.Lock()
+        self._stderr_thread = None
         self._frames_decoded = 0
+        self._lock = threading.Lock()
+        self._frame_counter = 0
+        self._frame_cond = threading.Condition(self._lock)
+        self._latest_jpeg = None
 
     def start(self) -> bool:
         input_codec = "h264" if "h264" in self._codec else "hevc"
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-fflags", "nobuffer",
+            "-probesize", "32768",
+            "-analyzeduration", "0",
             "-f", input_codec, "-i", "pipe:0",
+            "-flags", "low_delay",
             "-f", "mjpeg", "-q:v", str(self._jpeg_quality), "pipe:1",
         ]
         try:
@@ -70,10 +78,24 @@ class PersistentDecoder:
             return False
 
         self._running = True
+        self._frame_counter = 0
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
         log.info("Persistent FFmpeg decoder started (codec=%s)", self._codec)
         return True
+
+    def _drain_stderr(self):
+        try:
+            while self._running and self._proc and self._proc.stderr:
+                data = self._proc.stderr.read(4096)
+                if not data:
+                    break
+                if data.strip():
+                    log.debug("FFmpeg: %s", data.decode(errors="replace").strip())
+        except Exception:
+            pass
 
     def _read_loop(self):
         buf = bytearray()
@@ -100,22 +122,34 @@ class PersistentDecoder:
                 with self._lock:
                     self._latest_jpeg = jpeg
                     self._frames_decoded += 1
-                self._new_frame.set()
+                    self._frame_counter += 1
+                    self._frame_cond.notify_all()
         self._running = False
 
     def decode(self, nal_bytes: bytes, timeout: float = 2.0):
         if not self._running or not self._proc or not nal_bytes:
             return None
+
+        with self._lock:
+            expected = self._frame_counter + 1
+
         try:
-            self._proc.stdin.write(nal_bytes)
+            self._proc.stdin.write(nal_bytes + _NAL_TERM)
             self._proc.stdin.flush()
         except (BrokenPipeError, OSError):
             self._running = False
             return None
-        self._new_frame.clear()
-        if self._new_frame.wait(timeout=timeout):
-            with self._lock:
-                return self._latest_jpeg
+
+        deadline = time.monotonic() + timeout
+        with self._lock:
+            while time.monotonic() < deadline:
+                if self._frame_counter >= expected:
+                    return self._latest_jpeg
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._frame_cond.wait(timeout=min(remaining, 0.05))
+
         return None
 
     @property
@@ -150,14 +184,8 @@ def main():
     parser.add_argument("--channel", type=int, default=0, help="Camera channel (0-based)")
     parser.add_argument("--no-gui", action="store_true", help="Headless mode, save frames to disk")
     parser.add_argument("--max-frames", type=int, default=300, help="Max frames to capture")
-    parser.add_argument("--debug", action="store_true", help="Verbose packet-level debug logging")
-    parser.add_argument("--timeout", type=int, default=30, help="Seconds to wait before giving up (default 30)")
+    parser.add_argument("--timeout", type=int, default=30, help="Seconds to wait before giving up")
     args = parser.parse_args()
-
-    if args.debug:
-        logging.getLogger("cv_engine.services.dvrip_client").setLevel(logging.DEBUG)
-        logging.getLogger("cv_engine.services.dvrip_frames").setLevel(logging.DEBUG)
-        logging.getLogger("test_stream").setLevel(logging.DEBUG)
 
     cv2 = None
     if not args.no_gui:
@@ -168,7 +196,6 @@ def main():
             log.warning("cv2 not available — falling back to headless mode")
             args.no_gui = True
 
-    # Connect to NVR
     log.info("Connecting to %s:%d channel=%d ...", args.host, args.port, args.channel)
     client = DVRIPClient(args.host, args.port, args.username, args.password)
     try:
@@ -179,41 +206,7 @@ def main():
 
     log.info("Connected — device=%s channels=%d — starting decode...", client.device_name, client.channel_count)
 
-    # Debug: hook into packet reading to see raw data
-    if args.debug:
-        _orig_read_chunk = client._read_chunk
-        _orig_read_packet = client._read_packet
-        _chunk_count = [0]
-
-        def _debug_read_chunk():
-            chunk = _orig_read_chunk()
-            _chunk_count[0] += 1
-            if _chunk_count[0] <= 20:
-                if chunk:
-                    log.debug("CHUNK #%d: %d bytes: %s", _chunk_count[0], len(chunk), chunk[:40].hex())
-                else:
-                    log.debug("CHUNK #%d: None (timeout or error)", _chunk_count[0])
-            return chunk
-
-        def _debug_read_packet():
-            buf = client._read_buf
-            if buf:
-                log.debug("READ_BUF: %d bytes, first 20: %s", len(buf), buf[:20].hex())
-            result = _orig_read_packet()
-            ptype, payload, meta = result
-            log.debug("PACKET: type=0x%02X payload=%d bytes meta=%s", ptype, len(payload), meta)
-            return result
-
-        client._read_chunk = _debug_read_chunk
-        client._read_packet = _debug_read_packet
-
-    # Start persistent decoder
-    decoder = PersistentDecoder(codec="h264", jpeg_quality=3)
-    if not decoder.start():
-        log.error("Failed to start FFmpeg decoder")
-        client.close()
-        sys.exit(1)
-
+    decoder = None
     frame_count = 0
     output_dir = Path("test_frames")
     output_dir.mkdir(exist_ok=True)
@@ -221,102 +214,57 @@ def main():
     fps_counter = 0
     fps_time = time.time()
     fps_display = 0.0
+    packet_count = 0
 
     try:
         start_time = time.time()
         log.info("Entering packet loop...")
-        packet_count = 0
         for ptype, payload, meta in client.iter_packets():
             packet_count += 1
             elapsed = time.time() - start_time
 
-            # Log every packet type for debugging
             if packet_count <= 30 or packet_count % 50 == 0:
                 type_names = {0xFC: "I-FRAME", 0xFD: "P-FRAME", 0xFE: "JPEG", 0xFA: "AUDIO", 0xF9: "INFO"}
                 type_name = type_names.get(ptype, f"0x{ptype:02X}")
                 log.info("[pkt #%d] type=%s payload=%d meta=%s", packet_count, type_name, len(payload), meta)
 
-                # On first I-frame, save raw payload and test FFmpeg decode methods
-                if ptype == TYPE_I_FRAME and frame_count == 0 and not os.path.exists("_diag_tested"):
-                    Path("_diag_tested").touch()
-                    raw_path = Path("_diag_raw.h264")
-                    raw_path.write_bytes(payload)
-                    log.info("DIAG: Saved %d-byte I-frame to %s", len(payload), raw_path)
-                    # Check first bytes
-                    if len(payload) >= 5:
-                        log.info("DIAG: First 20 bytes: %s", payload[:20].hex())
-                        nal_byte = payload[4] if len(payload) > 4 else 0
-                        log.info("DIAG: Byte after start code: 0x%02X (H.264 NAL type & 0x1F = %d, H.265 NAL type >> 1 = %d)",
-                                 nal_byte, nal_byte & 0x1F, nal_byte >> 1)
-                    # Test decode methods
-                    import subprocess as sp
-                    for label, cmd in [
-                        ("auto-detect", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
-                        ("-f h264", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
-                        ("-f hevc", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
-                        ("pipe h264", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-y", "_diag_out_pipe.jpg"]),
-                        ("pipe hevc", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", "pipe:0", "-frames:v", "1", "-y", "_diag_out_pipe.jpg"]),
-                    ]:
-                        try:
-                            if "pipe" in label:
-                                result = sp.run(cmd, input=payload, capture_output=True, timeout=5)
-                            else:
-                                result = sp.run(cmd, capture_output=True, timeout=5)
-                            out_path = Path("_diag_out.jpg") if "pipe" not in label else Path("_diag_out_pipe.jpg")
-                            if result.returncode == 0 and out_path.exists() and out_path.stat().st_size > 100:
-                                log.info("DIAG: %s → SUCCESS (%d bytes)", label, out_path.stat().st_size)
-                            else:
-                                err = result.stderr.decode(errors="replace")[:100] if result.stderr else "no output"
-                                log.info("DIAG: %s → FAILED (rc=%d): %s", label, result.returncode, err)
-                        except Exception as e:
-                            log.info("DIAG: %s → ERROR: %s", label, e)
-                    # Cleanup test files
-                    for f in ["_diag_out.jpg", "_diag_out_pipe.jpg"]:
-                        try: os.unlink(f)
-                        except: pass
-
             if elapsed > args.timeout and frame_count == 0:
-                log.error("TIMEOUT: No frames received in %d seconds. NVR may not be streaming on channel %d.",
-                          args.timeout, args.channel)
+                log.error("TIMEOUT: No frames received in %d seconds.", args.timeout)
                 break
 
             if frame_count >= args.max_frames:
                 log.info("Captured %d frames, done.", args.max_frames)
                 break
 
-            # Skip audio/info
             if ptype in (0xFA, 0xF9):
                 continue
 
-            # Detect codec
             codec = "h264"
             if "codec" in meta:
                 cb = meta["codec"]
                 if cb in (3, 0x12, 0x13, 0x53):
                     codec = "h265"
 
-            # Re-init decoder on codec change
-            if decoder._codec != codec:
-                log.info("Codec changed to %s — restarting decoder", codec)
-                decoder.stop()
+            if decoder is None or decoder._codec != codec:
+                if decoder:
+                    log.info("Codec changed to %s — restarting decoder", codec)
+                    decoder.stop()
                 decoder = PersistentDecoder(codec=codec, jpeg_quality=3)
-                decoder.start()
+                if not decoder.start():
+                    log.error("Failed to start decoder for codec %s", codec)
+                    break
 
-            # JPEG packets pass through directly
             if ptype == TYPE_JPEG:
                 jpeg_bytes = payload
             else:
-                # I-frame or P-frame → feed to persistent FFmpeg
                 jpeg_bytes = decoder.decode(payload)
                 if not jpeg_bytes:
                     continue
 
-            # Save to disk (every 10th frame)
             if frame_count % 10 == 0:
                 frame_path = output_dir / f"frame_{frame_count:04d}.jpg"
                 frame_path.write_bytes(jpeg_bytes)
 
-            # Display
             if cv2 is not None:
                 import numpy as np
                 arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
@@ -336,8 +284,9 @@ def main():
                 fps_display = fps_counter / (now - fps_time)
                 fps_counter = 0
                 fps_time = now
-                log.info("FPS: %.1f | Frames: %d | Decoder: %s",
-                         fps_display, frame_count, decoder._frames_decoded)
+                log.info("FPS: %.1f | Frames: %d | Decoded: %s",
+                         fps_display, frame_count,
+                         decoder._frames_decoded if decoder else 0)
 
     except KeyboardInterrupt:
         pass
@@ -346,7 +295,8 @@ def main():
     except Exception as e:
         log.error("Error: %s", e, exc_info=True)
     finally:
-        decoder.stop()
+        if decoder:
+            decoder.stop()
         client.close()
         if cv2 is not None:
             cv2.destroyAllWindows()

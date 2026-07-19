@@ -47,11 +47,22 @@ async def _sync_after_change(session: AsyncSession) -> None:
     await sync_cameras(cam_data)
 
 
-def _build_stream_url(nvr: Nvr, channel: int) -> str:
-    """Build the dvrip:// stream URL for a camera channel on this NVR."""
+def _build_stream_url(nvr: Nvr, channel: int, prefer_rtsp: bool = True) -> str:
+    """Build the stream URL for a camera channel on this NVR.
+
+    If prefer_rtsp is True and the NVR has RTSP available, returns an
+    RTSP URL. Otherwise returns dvrip:// URL.
+    """
     cred = ""
     if nvr.username:
         cred = f"{nvr.username}:{nvr.password or ''}@"
+
+    if prefer_rtsp:
+        return (
+            f"rtsp://{cred}{nvr.ip_address}:554"
+            f"/user={nvr.username}&password={nvr.password or ''}"
+            f"&channel={channel + 1}&stream=1.sdp?real_stream"
+        )
     return f"dvrip://{cred}{nvr.ip_address}:{nvr.port}/{channel}"
 
 
@@ -285,6 +296,7 @@ async def discover_nvr_broadcast(
 async def import_nvr_channels(
     nvr_id: uuid.UUID,
     channels: list[int] = Query(..., description="Channel numbers to import"),
+    prefer_rtsp: bool = Query(True, description="Prefer RTSP over DVRIP if available"),
     _admin: None = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
@@ -292,9 +304,23 @@ async def import_nvr_channels(
     if not nvr:
         return ApiResponse(success=False, error={"code": "NOT_FOUND", "message": "NVR not found"})
 
+    # Probe RTSP availability once for the NVR
+    has_rtsp = False
+    if prefer_rtsp:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(nvr.ip_address, 554), timeout=2.0
+            )
+            writer.close()
+            await writer.wait_closed()
+            has_rtsp = True
+            LOGGER.info("NVR %s has RTSP on port 554 — will use RTSP URLs", nvr.ip_address)
+        except Exception:
+            LOGGER.info("NVR %s RTSP not available — falling back to DVRIP", nvr.ip_address)
+
     imported = []
     for ch in channels:
-        stream_url = _build_stream_url(nvr, ch)
+        stream_url = _build_stream_url(nvr, ch, prefer_rtsp=has_rtsp)
         cam = Camera(
             warehouse_id=nvr.warehouse_id,
             camera_name=f"{nvr.name} Ch{ch}",
@@ -309,12 +335,13 @@ async def import_nvr_channels(
             "camera_name": cam.camera_name,
             "stream_url": cam.stream_url,
             "channel": ch,
+            "protocol": "rtsp" if has_rtsp else "dvrip",
         })
 
     await _sync_after_change(session)
 
-    LOGGER.info("NVR %s: imported %d channels", nvr_id, len(imported))
+    LOGGER.info("NVR %s: imported %d channels (protocol=%s)", nvr_id, len(imported), "rtsp" if has_rtsp else "dvrip")
     return ApiResponse(
         success=True,
-        data={"imported": imported, "nvr_id": str(nvr_id), "count": len(imported)},
+        data={"imported": imported, "nvr_id": str(nvr_id), "count": len(imported), "protocol": "rtsp" if has_rtsp else "dvrip"},
     )

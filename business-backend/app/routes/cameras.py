@@ -274,11 +274,31 @@ async def dvrip_connect(
     session.add(nvr)
     await session.flush()
 
+    # Step 2.5: Probe RTSP availability
+    has_rtsp = False
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(body.host, 554), timeout=2.0
+        )
+        writer.close()
+        await writer.wait_closed()
+        has_rtsp = True
+        LOGGER.info("NVR %s has RTSP on port 554 — will use RTSP URLs", body.host)
+    except Exception:
+        LOGGER.info("NVR %s RTSP not available — using DVRIP URLs", body.host)
+
     # Step 3: Import active channels
     imported = []
     for ch_info in active_channels:
         ch = ch_info["channel_id"]
-        stream_url = f"dvrip://{body.username}:{body.password}@{body.host}:34567/{ch}"
+        if has_rtsp:
+            stream_url = (
+                f"rtsp://{body.username}:{body.password}@{body.host}:554"
+                f"/user={body.username}&password={body.password}"
+                f"&channel={ch + 1}&stream=1.sdp?real_stream"
+            )
+        else:
+            stream_url = f"dvrip://{body.username}:{body.password}@{body.host}:34567/{ch}"
         camera_name = f"{nvr.name} Ch{ch}"
 
         camera = await service.create(
@@ -303,6 +323,7 @@ async def dvrip_connect(
             "total_channels": len(channels),
             "active_channels": len(active_channels),
             "all_channels": channels,
+            "protocol": "rtsp" if has_rtsp else "dvrip",
         },
     )
 

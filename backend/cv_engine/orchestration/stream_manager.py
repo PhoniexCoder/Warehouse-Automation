@@ -20,7 +20,7 @@ import numpy as np
 from cv_engine.orchestration.frame_store import FrameStore
 from cv_engine.services.dvrip_client import DVRIPClient, DVRIPConnectionError, DVRIPAuthError
 from cv_engine.services.dvrip_frames import TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG, TYPE_AUDIO, TYPE_INFO
-from cv_engine.services.ffmpeg_decoder import FfmpegDecoder, encode_jpeg
+from cv_engine.services.ffmpeg_decoder import FfmpegDecoder, RtspDecoder, encode_jpeg
 
 LOGGER = logging.getLogger(__name__)
 
@@ -458,12 +458,167 @@ class CameraStream:
                 self._ws_subscribers.pop(sid, None)
 
 
+class RtspCameraStream:
+    """Manages a single camera's RTSP connection and frame distribution.
+
+    Uses FFmpeg to read RTSP directly, outputs JPEG frames to
+    WebSocket subscribers and FrameStore.
+    """
+
+    def __init__(
+        self,
+        camera_id: str,
+        rtsp_url: str,
+        frame_store: FrameStore,
+    ) -> None:
+        self.camera_id = camera_id
+        self.rtsp_url = rtsp_url
+        self._frame_store = frame_store
+
+        self._decoder: Optional[RtspDecoder] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._connected = False
+        self._consecutive_errors = 0
+        self._last_frame_time = 0.0
+        self._total_frames = 0
+
+        self._ws_subscribers: dict[str, Callable] = {}
+        self._sub_lock = threading.Lock()
+
+    @property
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def status(self) -> dict:
+        return {
+            "camera_id": self.camera_id,
+            "connected": self._connected,
+            "running": self.is_running,
+            "total_frames": self._total_frames,
+            "last_frame_age": (
+                time.time() - self._last_frame_time
+                if self._last_frame_time
+                else None
+            ),
+            "subscribers": len(self._ws_subscribers),
+            "consecutive_errors": self._consecutive_errors,
+            "decoder": self._decoder.stats if self._decoder else None,
+            "source_type": "rtsp",
+        }
+
+    def start(self) -> None:
+        if self.is_running:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name=f"rtsp-{self.camera_id}",
+        )
+        self._thread.start()
+        LOGGER.info("[%s] RtspCameraStream started (%s)", self.camera_id, self.rtsp_url)
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._connected = False
+
+        if self._decoder:
+            try:
+                self._decoder.stop()
+            except Exception:
+                pass
+            self._decoder = None
+
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    def subscribe_websocket(self, subscriber_id: str, queue_put: Callable) -> None:
+        with self._sub_lock:
+            self._ws_subscribers[subscriber_id] = queue_put
+
+    def unsubscribe_websocket(self, subscriber_id: str) -> None:
+        with self._sub_lock:
+            self._ws_subscribers.pop(subscriber_id, None)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._decoder = RtspDecoder(
+                    rtsp_url=self.rtsp_url,
+                    jpeg_quality=JPEG_QUALITY_STREAM,
+                )
+                if not self._decoder.start():
+                    LOGGER.error("[%s] Failed to start RTSP decoder", self.camera_id)
+                    self._stop.wait(10.0)
+                    continue
+
+                self._connected = True
+                self._consecutive_errors = 0
+                LOGGER.info("[%s] RTSP connected (%s)", self.camera_id, self.rtsp_url)
+
+                while not self._stop.is_set():
+                    jpeg = self._decoder.read_frame(timeout=2.0)
+                    if jpeg:
+                        self._total_frames += 1
+                        self._last_frame_time = time.time()
+                        self._distribute_jpeg(jpeg)
+                    elif not self._decoder.is_running:
+                        LOGGER.warning("[%s] RTSP decoder died", self.camera_id)
+                        break
+
+            except Exception as e:
+                LOGGER.exception("[%s] RTSP error: %s", self.camera_id, e)
+            finally:
+                self._connected = False
+                if self._decoder:
+                    try:
+                        self._decoder.stop()
+                    except Exception:
+                        pass
+                    self._decoder = None
+
+            if self._stop.is_set():
+                break
+
+            self._consecutive_errors += 1
+            delay = min(
+                RECONNECT_BASE_DELAY * (2 ** min(self._consecutive_errors - 1, 4)),
+                RECONNECT_MAX_DELAY,
+            )
+            LOGGER.info("[%s] RTSP reconnecting in %.1fs", self.camera_id, delay)
+            self._stop.wait(delay)
+
+    def _distribute_jpeg(self, jpeg_bytes: bytes) -> None:
+        try:
+            arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                self._frame_store.publish(
+                    self.camera_id, frame, quality=JPEG_QUALITY_STORE
+                )
+        except Exception:
+            pass
+
+        with self._sub_lock:
+            dead = []
+            for sub_id, put_fn in self._ws_subscribers.items():
+                try:
+                    put_fn(jpeg_bytes)
+                except Exception:
+                    dead.append(sub_id)
+            for sid in dead:
+                self._ws_subscribers.pop(sid, None)
+
+
 class StreamManager:
-    """Manages CameraStream instances for all active cameras."""
+    """Manages CameraStream and RtspCameraStream instances for all active cameras."""
 
     def __init__(self, frame_store: FrameStore) -> None:
         self._frame_store = frame_store
-        self._streams: dict[str, CameraStream] = {}
+        self._streams: dict[str, CameraStream | RtspCameraStream] = {}
         self._lock = threading.Lock()
 
     @property
@@ -503,8 +658,29 @@ class StreamManager:
             self._streams[camera_id] = stream
             stream.start()
 
+    def start_camera_rtsp(
+        self,
+        camera_id: str,
+        rtsp_url: str,
+    ) -> None:
+        """Start an RTSP stream for a camera."""
+        with self._lock:
+            if camera_id in self._streams:
+                existing = self._streams[camera_id]
+                if existing.is_running:
+                    return
+                existing.stop()
+
+            stream = RtspCameraStream(
+                camera_id=camera_id,
+                rtsp_url=rtsp_url,
+                frame_store=self._frame_store,
+            )
+            self._streams[camera_id] = stream
+            stream.start()
+
     def stop_camera(self, camera_id: str) -> None:
-        """Stop a camera's DVRIP stream."""
+        """Stop a camera's stream."""
         with self._lock:
             stream = self._streams.pop(camera_id, None)
             if stream:
@@ -517,7 +693,7 @@ class StreamManager:
                 stream.stop()
             self._streams.clear()
 
-    def get_stream(self, camera_id: str) -> Optional[CameraStream]:
+    def get_stream(self, camera_id: str) -> Optional[CameraStream | RtspCameraStream]:
         """Get a camera's stream by ID."""
         with self._lock:
             return self._streams.get(camera_id)
