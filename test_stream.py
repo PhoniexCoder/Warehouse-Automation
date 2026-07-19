@@ -65,7 +65,6 @@ class PersistentDecoder:
             "-probesize", "32768",
             "-analyzeduration", "0",
             "-f", input_codec, "-i", "pipe:0",
-            "-flags", "low_delay",
             "-f", "mjpeg", "-q:v", str(self._jpeg_quality), "pipe:1",
         ]
         try:
