@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 
 class UserRoleEnum(str, enum.Enum):
+    SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     MANAGER = "MANAGER"
     OPERATOR = "OPERATOR"

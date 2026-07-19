@@ -53,6 +53,14 @@ async def _startup() -> None:
         await conn.run_sync(Base.metadata.create_all)
     LOGGER.info("Database tables created / verified")
 
+    from app.database.session import async_session_factory
+    from app.auth.seed import seed_super_admin
+
+    async with async_session_factory() as session:
+        await seed_super_admin(session)
+        await session.commit()
+    LOGGER.info("Seed complete")
+
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:

@@ -22,9 +22,10 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter(tags=["Auth"])
 
 
-@router.post("/register", status_code=201, summary="Register a new user")
+@router.post("/register", status_code=201, summary="Register a new user (admin only)")
 async def register(
     body: RegisterRequest,
+    _admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = UserService(session)

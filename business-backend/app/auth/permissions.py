@@ -44,6 +44,8 @@ class RoleChecker:
         self._allowed = set(allowed_roles)
 
     async def __call__(self, user: User = Depends(get_current_user)) -> User:
+        if user.role == UserRole.SUPER_ADMIN:
+            return user
         if user.role not in self._allowed:
             LOGGER.warning(
                 "Forbidden: user=%s role=%s required=%s",
@@ -56,6 +58,7 @@ class RoleChecker:
         return user
 
 
-require_admin = RoleChecker(UserRole.ADMIN)
-require_manager_up = RoleChecker(UserRole.ADMIN, UserRole.MANAGER)
-require_any = RoleChecker(UserRole.ADMIN, UserRole.MANAGER, UserRole.OPERATOR)
+require_super_admin = RoleChecker(UserRole.SUPER_ADMIN)
+require_admin = RoleChecker(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+require_manager_up = RoleChecker(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER)
+require_any = RoleChecker(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER, UserRole.OPERATOR)
