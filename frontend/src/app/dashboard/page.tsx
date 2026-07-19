@@ -546,7 +546,7 @@ export default function DashboardPage() {
                 <th className="px-4 py-3">Carton ID</th>
                 <th className="px-4 py-3">Product / Flavor</th>
                 <th className="px-4 py-3">Case Count</th>
-                <th className="px-4 py-3">Line / Conveyor</th>
+                <th className="px-4 py-3">Camera</th>
                 <th className="px-4 py-3">Scan Timestamp</th>
                 <th className="px-4 py-3">Scan Type</th>
                 <th className="px-4 py-3 text-center">Scan Status</th>
