@@ -49,6 +49,16 @@ app.include_router(v1_router)
 
 @app.on_event("startup")
 async def _startup() -> None:
+    # Ensure SUPER_ADMIN exists in PostgreSQL enum type outside transaction block
+    async with engine.connect() as conn:
+        try:
+            await conn.execution_options(isolation_level="AUTOCOMMIT").execute(
+                "ALTER TYPE user_role_enum ADD VALUE 'SUPER_ADMIN'"
+            )
+            LOGGER.info("Successfully added SUPER_ADMIN to user_role_enum")
+        except Exception as e:
+            LOGGER.debug("Could not alter user_role_enum (already present or not pg): %s", e)
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     LOGGER.info("Database tables created / verified")
