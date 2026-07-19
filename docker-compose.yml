@@ -30,6 +30,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-in-production}
       AI_ENGINE_URL: "http://cv-engine:8000"
       GO2RTC_URL: "http://host.docker.internal:1984"
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-superadmin}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-superadmin123}
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-superadmin@warehouse.local}
     volumes:
       - ./docker/entrypoint-business.sh:/app/entrypoint.sh:ro
       - ./models:/app/models:ro
