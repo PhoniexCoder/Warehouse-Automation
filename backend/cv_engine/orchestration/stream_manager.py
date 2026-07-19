@@ -78,14 +78,16 @@ class NvrConnectionScheduler:
                 self._max_per_nvr[key] = DEFAULT_MAX_CONNECTIONS
 
         # Stagger: enforce minimum delay between connections to same NVR
+        wait = 0.0
         with self._lock:
             last = self._last_connect_time.get(key, 0.0)
             elapsed = time.time() - last
             if elapsed < STAGGER_DELAY:
                 wait = STAGGER_DELAY - elapsed
-                self._lock.release()
-                time.sleep(wait)
-                self._lock.acquire()
+
+        # Sleep outside the lock to avoid blocking other NVR schedulers
+        if wait > 0:
+            time.sleep(wait)
 
         # Blocking acquire with timeout
         sem = self._semaphores[key]
@@ -343,13 +345,12 @@ class CameraStream:
             if ptype not in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
                 continue
 
-            # Detect codec from I-frame metadata
+            # Detect codec from I-frame metadata; default to h264
+            codec = "h264"
             if ptype == TYPE_I_FRAME and "codec" in meta:
                 codec_byte = meta["codec"]
                 if codec_byte in (3, 0x12, 0x13):
                     codec = "h265"
-                else:
-                    codec = "h264"
 
             self._total_frames += 1
             self._last_frame_time = time.time()
@@ -398,11 +399,12 @@ class CameraStream:
         if frame is not None and frame.size > 0:
             return encode_jpeg(frame, JPEG_QUALITY_STREAM)
 
-        LOGGER.debug(
-            "[%s] Decode failed for frame type 0x%02X (codec=%s)",
+        LOGGER.warning(
+            "[%s] Decode failed for frame type 0x%02X (codec=%s, payload=%d bytes)",
             self.camera_id,
             ptype,
             codec,
+            len(payload),
         )
         return None
 

@@ -155,8 +155,9 @@ class FfmpegDecoder:
 
                 self._errors += 1
                 if result.stderr:
-                    LOGGER.debug(
-                        "FFmpeg decode failed: %s",
+                    LOGGER.warning(
+                        "FFmpeg decode failed (rc=%d): %s",
+                        result.returncode,
                         result.stderr.decode(errors="replace")[:200],
                     )
 

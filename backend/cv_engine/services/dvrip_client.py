@@ -837,26 +837,30 @@ class DVRIPClient:
                 self._sock.settimeout(old_timeout)
 
     def _send_command(self, cmd: int, payload: bytes) -> int:
-        """Send a DVRIP command packet. Returns the sequence number used."""
+        """Send a DVRIP command packet. Returns the sequence number used.
+
+        Lock protects both seq increment AND sendall() to prevent
+        keepalive thread and main thread from interleaving bytes on the socket.
+        """
         with self._lock:
             seq = self._seq
             self._seq += 1
 
-        # 20-byte DVRIP header (matches go2rtc's WriteCmd exactly)
-        header = bytearray(20)
-        header[0] = 0xFF  # magic
-        # bytes 1-3: unused (direction=0, padding=0)
-        struct.pack_into("<I", header, 4, self._session)  # session
-        struct.pack_into("<I", header, 8, seq)  # sequence
-        # bytes 12-13: unused (0)
-        struct.pack_into("<H", header, 14, cmd)  # command
-        struct.pack_into("<I", header, 16, len(payload))  # payload_size
+            # 20-byte DVRIP header (matches go2rtc's WriteCmd exactly)
+            header = bytearray(20)
+            header[0] = 0xFF  # magic
+            # bytes 1-3: unused (direction=0, padding=0)
+            struct.pack_into("<I", header, 4, self._session)  # session
+            struct.pack_into("<I", header, 8, seq)  # sequence
+            # bytes 12-13: unused (0)
+            struct.pack_into("<H", header, 14, cmd)  # command
+            struct.pack_into("<I", header, 16, len(payload))  # payload_size
 
-        try:
-            self._sock.sendall(bytes(header) + payload)
-        except (socket.error, OSError) as e:
-            self._connected = False
-            raise DVRIPConnectionError(f"Send failed: {e}") from e
+            try:
+                self._sock.sendall(bytes(header) + payload)
+            except (socket.error, OSError) as e:
+                self._connected = False
+                raise DVRIPConnectionError(f"Send failed: {e}") from e
 
         return seq
 

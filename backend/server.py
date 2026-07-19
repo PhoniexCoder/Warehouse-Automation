@@ -284,13 +284,23 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
 
     Authenticates via query param ?key=<INTERNAL_API_KEY>.
     Sends raw JPEG binary frames at ~5 FPS.
+
+    Waits up to 15s for the camera stream to become available
+    (allows time for DVRIP connection on startup).
     """
     api_key = websocket.query_params.get("key", "")
     if api_key != _CV_INTERNAL_KEY:
         await websocket.close(code=4001, reason="Invalid API key")
         return
 
-    stream = stream_manager.get_stream(camera_id)
+    # Wait for the stream to become available (DVRIP may still be connecting)
+    stream = None
+    for _ in range(30):  # 30 * 0.5s = 15s max wait
+        stream = stream_manager.get_stream(camera_id)
+        if stream:
+            break
+        await asyncio.sleep(0.5)
+
     if not stream:
         await websocket.close(code=4004, reason=f"Camera '{camera_id}' not found")
         return
@@ -299,13 +309,15 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
     LOGGER.info("[ws:%s] Client connected", camera_id)
 
     sub_id = str(uuid.uuid4())[:8]
-    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+    loop = asyncio.get_running_loop()
+    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 
     def _on_frame(jpeg_bytes: bytes):
+        """Called from CameraStream thread — use thread-safe put."""
         try:
-            frame_queue.put_nowait(jpeg_bytes)
-        except asyncio.QueueFull:
-            pass  # Drop old frames if subscriber is slow
+            loop.call_soon_threadsafe(frame_queue.put_nowait, jpeg_bytes)
+        except RuntimeError:
+            pass  # Event loop closed
 
     stream.subscribe_websocket(sub_id, _on_frame)
 
