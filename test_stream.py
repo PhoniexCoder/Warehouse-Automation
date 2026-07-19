@@ -292,7 +292,7 @@ def main():
             codec = "h264"
             if "codec" in meta:
                 cb = meta["codec"]
-                if cb in (3, 0x12, 0x13):
+                if cb in (3, 0x12, 0x13, 0x53):
                     codec = "h265"
 
             # Re-init decoder on codec change
