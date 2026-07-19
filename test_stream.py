@@ -150,7 +150,13 @@ def main():
     parser.add_argument("--channel", type=int, default=0, help="Camera channel (0-based)")
     parser.add_argument("--no-gui", action="store_true", help="Headless mode, save frames to disk")
     parser.add_argument("--max-frames", type=int, default=300, help="Max frames to capture")
+    parser.add_argument("--debug", action="store_true", help="Verbose packet-level debug logging")
+    parser.add_argument("--timeout", type=int, default=30, help="Seconds to wait before giving up (default 30)")
     args = parser.parse_args()
+
+    if args.debug:
+        logging.getLogger("cv_engine.services.dvrip_client").setLevel(logging.DEBUG)
+        logging.getLogger("cv_engine.services.dvrip_frames").setLevel(logging.DEBUG)
 
     cv2 = None
     if not args.no_gui:
@@ -172,6 +178,34 @@ def main():
 
     log.info("Connected — device=%s channels=%d — starting decode...", client.device_name, client.channel_count)
 
+    # Debug: hook into packet reading to see raw data
+    if args.debug:
+        _orig_read_chunk = client._read_chunk
+        _orig_read_packet = client._read_packet
+        _chunk_count = [0]
+
+        def _debug_read_chunk():
+            chunk = _orig_read_chunk()
+            _chunk_count[0] += 1
+            if _chunk_count[0] <= 20:
+                if chunk:
+                    log.debug("CHUNK #%d: %d bytes: %s", _chunk_count[0], len(chunk), chunk[:40].hex())
+                else:
+                    log.debug("CHUNK #%d: None (timeout or error)", _chunk_count[0])
+            return chunk
+
+        def _debug_read_packet():
+            buf = client._read_buf
+            if buf:
+                log.debug("READ_BUF: %d bytes, first 20: %s", len(buf), buf[:20].hex())
+            result = _orig_read_packet()
+            ptype, payload, meta = result
+            log.debug("PACKET: type=0x%02X payload=%d bytes meta=%s", ptype, len(payload), meta)
+            return result
+
+        client._read_chunk = _debug_read_chunk
+        client._read_packet = _debug_read_packet
+
     # Start persistent decoder
     decoder = PersistentDecoder(codec="h264", jpeg_quality=3)
     if not decoder.start():
@@ -188,7 +222,18 @@ def main():
     fps_display = 0.0
 
     try:
+        start_time = time.time()
+        log.info("Entering packet loop...")
+        packet_count = 0
         for ptype, payload, meta in client.iter_packets():
+            packet_count += 1
+            elapsed = time.time() - start_time
+
+            if elapsed > args.timeout and frame_count == 0:
+                log.error("TIMEOUT: No frames received in %d seconds. NVR may not be streaming on channel %d.",
+                          args.timeout, args.channel)
+                break
+
             if frame_count >= args.max_frames:
                 log.info("Captured %d frames, done.", args.max_frames)
                 break
@@ -259,7 +304,7 @@ def main():
         client.close()
         if cv2 is not None:
             cv2.destroyAllWindows()
-        log.info("Done — %d frames captured", frame_count)
+        log.info("Done — %d frames captured, %d packets received", frame_count, packet_count)
 
 
 if __name__ == "__main__":
