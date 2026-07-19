@@ -29,7 +29,6 @@ services:
       PORT: "8001"
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       AI_ENGINE_URL: "http://cv-engine:8000"
-      GO2RTC_URL: "http://host.docker.internal:1984"
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-superadmin}
@@ -51,19 +50,6 @@ services:
       retries: 5
     command: ["bash", "/app/entrypoint.sh"]
 
-  go2rtc:
-    image: alexxit/go2rtc:latest
-    network_mode: host
-    volumes:
-      - ./go2rtc/entrypoint.sh:/entrypoint.sh:ro
-    environment:
-      NVR_HOST: ${NVR_HOST:?Set NVR_HOST in .env}
-      NVR_PORT: ${NVR_PORT:-34567}
-      NVR_USER: ${NVR_USER:?Set NVR_USER in .env}
-      NVR_PASS: ${NVR_PASS:?Set NVR_PASS in .env}
-    entrypoint: ["/bin/sh", "/entrypoint.sh"]
-    restart: unless-stopped
-
   cv-engine:
     build:
       context: .
@@ -79,8 +65,6 @@ services:
       MODEL_PATH: "/app/models/box_model.pt"
       HOST: "0.0.0.0"
       PORT: "8000"
-      GO2RTC_URL: "http://host.docker.internal:1984"
-      GO2RTC_RTSP_HOST: "host.docker.internal"
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
       OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp"
@@ -94,8 +78,6 @@ services:
               count: all
               capabilities: [gpu]
     depends_on:
-      go2rtc:
-        condition: service_started
       business:
         condition: service_healthy
 
@@ -110,6 +92,7 @@ services:
     environment:
       NEXTAUTH_URL: "http://localhost:3000"
       BACKEND_URL: "http://business:8001"
+      NEXT_PUBLIC_CV_ENGINE_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
     depends_on:
       business:
         condition: service_healthy

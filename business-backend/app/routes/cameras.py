@@ -283,13 +283,15 @@ async def list_active_cameras_internal(
     )
 
 
-GO2RTC_URL = os.environ.get("GO2RTC_URL", "http://host.docker.internal:1984")
+GO2RTC_URL = os.environ.get("GO2RTC_URL", "")
 
 
 @router.get("/go2rtc/streams", summary="List available go2rtc streams")
 async def list_go2rtc_streams(
     _any: User = Depends(require_any),
 ) -> ApiResponse:
+    if not GO2RTC_URL:
+        return ApiResponse(success=True, data={})
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(f"{GO2RTC_URL}/api/streams")

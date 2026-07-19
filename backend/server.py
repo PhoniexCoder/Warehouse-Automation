@@ -8,11 +8,12 @@ import asyncio
 import logging
 import multiprocessing
 import sys
+import uuid
 
 multiprocessing.set_start_method("spawn", force=True)
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -21,6 +22,7 @@ from api.exceptions import general_exception_handler, validation_exception_handl
 from cv_engine.database import create_tables
 from cv_engine.orchestration.camera_manager import CameraManager
 from cv_engine.orchestration.frame_store import FrameStore
+from cv_engine.orchestration.stream_manager import StreamManager
 from fastapi.exceptions import RequestValidationError
 
 logging.basicConfig(
@@ -33,6 +35,7 @@ LOGGER = logging.getLogger("server")
 
 camera_manager = CameraManager()
 frame_store = FrameStore()
+stream_manager = StreamManager(frame_store)
 
 app = FastAPI(title="Warehouse AI API", version="1.0.0")
 
@@ -56,11 +59,15 @@ app.include_router(v1_router, prefix="/api/v1")
 
 import hashlib
 import json
+import re
 import requests
 import threading
 import time
+from urllib.parse import urlparse
 
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
+
+_DVRIP_URL_RE = re.compile(r"^dvrip://([^:]+):([^@]+)@([^:]+):(\d+)/(\d+)$")
 
 
 def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> None:
@@ -69,13 +76,28 @@ def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-
 
 
 def _config_hash(config: dict) -> str:
-    keys = {"model_path", "roi", "source_type", "go2rtc_stream", "source", "detection_conf", "count_conf"}
+    keys = {"model_path", "roi", "source_type", "source", "detection_conf", "count_conf"}
     snapshot = {k: config.get(k) for k in sorted(keys)}
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
 
+
+def _parse_dvrip_url(url: str) -> dict | None:
+    """Parse dvrip://user:pass@host:port/channel into components."""
+    m = _DVRIP_URL_RE.match(url)
+    if not m:
+        return None
+    return {
+        "username": m.group(1),
+        "password": m.group(2),
+        "host": m.group(3),
+        "port": int(m.group(4)),
+        "channel": int(m.group(5)),
+    }
+
+
 def sync_cameras_loop():
     time.sleep(5)
-    LOGGER.info("VMS Sync loop started")
+    LOGGER.info("VMS Sync loop started (DVRIP direct mode)")
     while True:
         try:
             url = f"{BUSINESS_BACKEND_URL}/api/v1/cameras/internal/active"
@@ -95,20 +117,48 @@ def sync_cameras_loop():
                             if not stream_url:
                                 continue
 
+                            # DVRIP cameras: use direct DVRIP protocol (no go2rtc)
                             if stream_url.startswith("dvrip://"):
-                                config = {
-                                    "source_type": "dvrip",
-                                    "go2rtc_stream": cam_id,
+                                dvrip_info = _parse_dvrip_url(stream_url)
+                                if not dvrip_info:
+                                    LOGGER.warning("VMS: Cannot parse DVRIP URL for %s: %s", cam_id, stream_url)
+                                    continue
+
+                                # Start direct DVRIP stream
+                                stream_manager.start_camera(
+                                    camera_id=cam_id,
+                                    host=dvrip_info["host"],
+                                    port=dvrip_info["port"],
+                                    username=dvrip_info["username"],
+                                    password=dvrip_info["password"],
+                                    channel=dvrip_info["channel"],
+                                )
+
+                                # Also start detection worker if model is assigned
+                                model_path = cam.get("model_path") or ""
+                                detection_config = {
+                                    "source_type": "file_store",
                                     "line_y": 500,
                                     "display_name": cam.get("camera_name", ""),
                                     "target_fps": 5,
-                                    "frame_skip": 2,
-                                    "model_path": cam.get("model_path") or "",
+                                    "model_path": model_path,
                                     "roi": cam.get("roi"),
                                     "detection_conf": 0.55,
                                     "count_conf": 0.65,
                                 }
+                                if cam_id not in camera_manager._configs:
+                                    detection_config["_hash"] = _config_hash(detection_config)
+                                    camera_manager.start_camera(cam_id, detection_config)
+                                else:
+                                    old_hash = camera_manager._configs[cam_id].get("_hash", "")
+                                    new_hash = _config_hash(detection_config)
+                                    if new_hash != old_hash:
+                                        detection_config["_hash"] = new_hash
+                                        camera_manager.stop_camera(cam_id)
+                                        camera_manager.start_camera(cam_id, detection_config)
+
                             else:
+                                # RTSP cameras: use CameraManager directly (no go2rtc)
                                 config = {
                                     "source_type": "rtsp",
                                     "source": stream_url,
@@ -122,36 +172,47 @@ def sync_cameras_loop():
                                     "count_conf": 0.65,
                                 }
 
-                            if cam_id in camera_manager._configs:
-                                old_hash = camera_manager._configs[cam_id].get("_hash", "")
-                                new_hash = _config_hash(config)
-                                config["_hash"] = new_hash
+                                if cam_id in camera_manager._configs:
+                                    old_hash = camera_manager._configs[cam_id].get("_hash", "")
+                                    new_hash = _config_hash(config)
+                                    config["_hash"] = new_hash
 
-                                if new_hash != old_hash:
-                                    LOGGER.info("VMS: Config changed for %s (roi/model), restarting worker",
-                                                 cam.get("camera_name"))
-                                    camera_manager.stop_camera(cam_id)
-                                    camera_manager.start_camera(cam_id, config)
-                                else:
-                                    health = camera_manager._health.get(cam_id, {})
-                                    status = health.get("status", "")
-                                    if status in ("dead", "stopped"):
-                                        LOGGER.info("VMS: Retrying dead camera %s (%s)", cam.get("camera_name"), cam_id)
+                                    if new_hash != old_hash:
+                                        LOGGER.info("VMS: Config changed for %s, restarting worker",
+                                                     cam.get("camera_name"))
                                         camera_manager.stop_camera(cam_id)
                                         camera_manager.start_camera(cam_id, config)
-                            else:
-                                config["_hash"] = _config_hash(config)
-                                LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
-                                             cam.get("camera_name"), cam_id, config["source_type"])
-                                camera_manager.start_camera(cam_id, config)
+                                    else:
+                                        health = camera_manager._health.get(cam_id, {})
+                                        status = health.get("status", "")
+                                        if status in ("dead", "stopped"):
+                                            LOGGER.info("VMS: Retrying dead camera %s (%s)",
+                                                         cam.get("camera_name"), cam_id)
+                                            camera_manager.stop_camera(cam_id)
+                                            camera_manager.start_camera(cam_id, config)
+                                else:
+                                    config["_hash"] = _config_hash(config)
+                                    LOGGER.info("VMS: Starting camera worker for %s (%s) [%s]",
+                                                 cam.get("camera_name"), cam_id, config["source_type"])
+                                    camera_manager.start_camera(cam_id, config)
+
                         except Exception:
                             LOGGER.exception("VMS: Failed to start worker for camera %s", cam.get("id", "?"))
 
+                    # Stop cameras that are no longer active
                     configured_ids = list(camera_manager._configs.keys())
                     for c_id in configured_ids:
                         if c_id not in active_ids:
                             LOGGER.info("VMS: Stopping camera worker for %s", c_id)
                             camera_manager.stop_camera(c_id)
+
+                    # Stop DVRIP streams for inactive cameras
+                    stream_status = stream_manager.status
+                    for s_cam_id in stream_status:
+                        if s_cam_id not in active_ids:
+                            LOGGER.info("VMS: Stopping DVRIP stream for %s", s_cam_id)
+                            stream_manager.stop_camera(s_cam_id)
+
         except Exception:
             LOGGER.exception("VMS: Sync loop error")
         time.sleep(10)
@@ -172,7 +233,8 @@ def _startup() -> None:
 
 @app.on_event("shutdown")
 def _shutdown() -> None:
-    LOGGER.info("Shutting down CameraManager")
+    LOGGER.info("Shutting down StreamManager and CameraManager")
+    stream_manager.stop_all()
     camera_manager.stop_all()
 
 
@@ -183,16 +245,80 @@ def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> di
     return {
         "success": True,
         "data": camera_manager.get_status(),
+        "stream_status": stream_manager.status,
         "error": None,
     }
 
 
+# ─── WebSocket Live Stream ──────────────────────────────────────────────
+
+@app.websocket("/api/v1/stream/ws/{camera_id}")
+async def ws_stream(websocket: WebSocket, camera_id: str):
+    """WebSocket endpoint for live JPEG frame streaming.
+
+    Authenticates via query param ?key=<INTERNAL_API_KEY>.
+    Sends raw JPEG binary frames at ~5 FPS.
+    """
+    api_key = websocket.query_params.get("key", "")
+    if api_key != _CV_INTERNAL_KEY:
+        await websocket.close(code=4001, reason="Invalid API key")
+        return
+
+    stream = stream_manager.get_stream(camera_id)
+    if not stream:
+        await websocket.close(code=4004, reason=f"Camera '{camera_id}' not found")
+        return
+
+    await websocket.accept()
+    LOGGER.info("[ws:%s] Client connected", camera_id)
+
+    sub_id = str(uuid.uuid4())[:8]
+    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+
+    def _on_frame(jpeg_bytes: bytes):
+        try:
+            frame_queue.put_nowait(jpeg_bytes)
+        except asyncio.QueueFull:
+            pass  # Drop old frames if subscriber is slow
+
+    stream.subscribe_websocket(sub_id, _on_frame)
+
+    try:
+        while True:
+            try:
+                jpeg = await asyncio.wait_for(frame_queue.get(), timeout=5.0)
+                await websocket.send_bytes(jpeg)
+            except asyncio.TimeoutError:
+                # Send keepalive ping
+                try:
+                    await websocket.send_text("")
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        LOGGER.debug("[ws:%s] Client error: %s", camera_id, e)
+    finally:
+        stream.unsubscribe_websocket(sub_id)
+        LOGGER.info("[ws:%s] Client disconnected", camera_id)
+
+
+# ─── MJPEG Fallback (reads from FrameStore) ─────────────────────────────
+
 @app.get("/api/v1/stream/{camera_id}")
 async def stream_camera(camera_id: str, x_internal_key: str = Header(..., alias="X-Internal-Key")):
-    cameras = camera_manager.get_status().get("cameras", {})
+    """MJPEG endpoint — reads latest frame from FrameStore.
+
+    This serves as a fallback for <img> tags that can't do WebSocket.
+    No internal key check for this endpoint — cameras serve from FrameStore.
+    """
     if x_internal_key != _CV_INTERNAL_KEY:
         raise HTTPException(status_code=401, detail="Invalid internal API key")
-    if camera_id not in cameras:
+
+    # Check if camera exists in either StreamManager or CameraManager
+    has_stream = stream_manager.get_stream(camera_id) is not None
+    has_worker = camera_id in camera_manager._configs
+    if not has_stream and not has_worker:
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
 
     async def _generate():
@@ -215,12 +341,10 @@ async def stream_camera(camera_id: str, x_internal_key: str = Header(..., alias=
                     else:
                         no_frame_count += 1
                         if no_frame_count > 150:
-                            LOGGER.warning("No frames for camera %s after 5s, closing stream", camera_id)
                             break
                 else:
                     no_frame_count += 1
                     if no_frame_count > 150:
-                        LOGGER.warning("No frames for camera %s after 5s, closing stream", camera_id)
                         break
                 await asyncio.sleep(0.033)
         except asyncio.CancelledError:

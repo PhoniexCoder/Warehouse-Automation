@@ -166,54 +166,12 @@ class CameraWorker:
                 camera_id=self.camera_id,
                 scene=self._scene,
             )
-        elif self._source_type == "dvrip":
-            go2rtc_rtsp_host = os.getenv("GO2RTC_RTSP_HOST", "localhost")
-            go2rtc_stream = self.config.get("go2rtc_stream", self.camera_id)
-            rtsp_url = f"rtsp://{go2rtc_rtsp_host}:8554/{go2rtc_stream}"
-            from go2rtc.video_stream import VideoStream
-
-            for attempt in range(1, 11):
-                if self._frame_source is not None:
-                    try:
-                        self._frame_source.release()
-                    except Exception:
-                        pass
-                    self._frame_source = None
-                self._frame_source = VideoStream(
-                    rtsp_url,
-                    buffer_size=30,
-                    enable_watchdog=True,
-                    max_reconnect_attempts=0,
-                    watchdog_timeout=10.0,
-                )
-                if self._frame_source.is_open():
-                    break
-                LOGGER.warning("[%s] RTSP connect attempt %d/10 failed for %s, retry in 3s...",
-                               self.camera_id, attempt, rtsp_url)
-                self._sleep(3.0)
-            else:
-                raise RuntimeError(f"Cannot open go2rtc RTSP stream {rtsp_url} after 10 attempts")
-            model_path = self.config.get("model_path")
-            if model_path:
-                from cv_engine.services.detector import BoxDetector
-                import subprocess
-                device = self.config.get("device", "cpu")
-                try:
-                    subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
-                    if device == "cpu":
-                        device = "cuda:0"
-                except Exception:
-                    pass
-                self._detector = BoxDetector(
-                    model_path=model_path,
-                    conf_threshold=self._detection_conf,
-                    device=device,
-                    input_size=self.config.get("input_size", 640),
-                )
-                LOGGER.info("[%s] YOLO loaded: %s (conf=%.2f, device=%s)",
-                            self.camera_id, model_path, self._detection_conf, device)
-            else:
-                LOGGER.info("[%s] No model selected — stream-only mode (no detection)", self.camera_id)
+        elif self._source_type in ("dvrip", "file_store"):
+            # DVRIP/FileStore mode: read JPEG frames from FrameStore
+            # (populated by StreamManager for DVRIP, or self for RTSP via FrameStore)
+            LOGGER.info("[%s] %s mode — reading from FrameStore",
+                        self.camera_id, self._source_type.upper())
+            self._init_detector()
         else:
             from cv_engine.services.inference_engine import InferenceEngine
             self._frame_source = InferenceEngine(
@@ -236,12 +194,41 @@ class CameraWorker:
         self._duplicate_guard = DuplicateGuard()
         self._build_roi_mask()
 
+    def _init_detector(self) -> None:
+        """Initialize YOLO detector if model_path is configured."""
+        model_path = self.config.get("model_path")
+        if model_path:
+            from cv_engine.services.detector import BoxDetector
+            import subprocess
+            device = self.config.get("device", "cpu")
+            try:
+                subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT)
+                if device == "cpu":
+                    device = "cuda:0"
+            except Exception:
+                pass
+            self._detector = BoxDetector(
+                model_path=model_path,
+                conf_threshold=self._detection_conf,
+                device=device,
+                input_size=self.config.get("input_size", 640),
+            )
+            LOGGER.info("[%s] YOLO loaded: %s (conf=%.2f, device=%s)",
+                        self.camera_id, model_path, self._detection_conf, device)
+        else:
+            LOGGER.info("[%s] No model selected — stream-only mode (no detection)", self.camera_id)
+
     def _read_frame(self):
         if self._source_type == "simulated":
             return self._frame_source.read()
-        elif self._source_type == "dvrip":
-            ret, frame = self._frame_source.read()
-            if not ret or frame is None:
+        elif self._source_type in ("dvrip", "file_store"):
+            # Read latest JPEG from FrameStore (populated by StreamManager or camera_worker itself)
+            data = self._frame_store.latest_bytes(self.camera_id)
+            if data is None:
+                return False, None, None
+            arr = np.frombuffer(data, dtype=np.uint8)
+            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if frame is None:
                 return False, None, None
             return True, frame, None
         else:

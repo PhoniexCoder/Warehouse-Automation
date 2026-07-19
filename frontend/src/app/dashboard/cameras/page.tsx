@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge"
 import { Spinner } from "@/components/ui/Spinner"
 import { format } from "date-fns"
 import { RoiOverlay } from "@/components/camera/RoiOverlay"
+import { LiveCameraPreview } from "@/components/camera/LiveCameraPreview"
 
 const getMjpegUrl = (id: string): string => {
   if (typeof window !== "undefined") {
@@ -41,10 +42,6 @@ export default function CamerasPage() {
   const [dvripUsername, setDvripUsername] = useState("")
   const [dvripPassword, setDvripPassword] = useState("")
   const [dvripConnecting, setDvripConnecting] = useState(false)
-
-  // go2rtc channel state
-  const [go2rtcChannels, setGo2rtcChannels] = useState<Record<string, string>>({})
-  const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
 
   // VMS discovery state
   const [discoverModalOpen, setDiscoverModalOpen] = useState(false)
@@ -223,21 +220,16 @@ export default function CamerasPage() {
     setStreamUrl("")
     setWarehouseId(warehouses[0]?.id || "")
     setCameraStatus("online")
-    setSelectedChannel(null)
     setSelectedModel(null)
     setRoi(null)
     setRoiDrawing(false)
     setModalError("")
     setModalOpen(true)
     try {
-      const [streams, modelsList] = await Promise.all([
-        api.getGo2rtcStreams(),
-        api.getModels(),
-      ])
-      setGo2rtcChannels(streams)
+      const modelsList = await api.getModels()
       setModels(modelsList)
     } catch {
-      setGo2rtcChannels({})
+      // models fetch failed
     }
   }
 
@@ -247,24 +239,15 @@ export default function CamerasPage() {
     setStreamUrl(c.stream_url || "")
     setWarehouseId(c.warehouse_id)
     setCameraStatus(c.status)
-    setSelectedChannel(null)
     setSelectedModel(c.model_path || null)
     setRoi(c.roi || null)
     setRoiDrawing(false)
     setModalOpen(true)
     try {
-      const [streams, modelsList] = await Promise.all([
-        api.getGo2rtcStreams(),
-        api.getModels(),
-      ])
-      setGo2rtcChannels(streams)
+      const modelsList = await api.getModels()
       setModels(modelsList)
-      const match = c.stream_url?.match(/rtsp:\/\/go2rtc:8554\/(\w+)/)
-      if (match && streams[match[1]]) {
-        setSelectedChannel(match[1])
-      }
     } catch {
-      setGo2rtcChannels({})
+      // models fetch failed
     }
   }
 
@@ -525,10 +508,10 @@ export default function CamerasPage() {
                 <Card key={c.id} className="overflow-hidden p-0 flex flex-col h-full bg-white border border-slate-200/60 rounded-2xl shadow-sm">
                   <div className="relative bg-black aspect-video overflow-hidden w-full">
                     {c.status === "active" || c.status === "online" ? (
-                      <img
-                        src={getMjpegUrl(c.id)}
-                        alt={`${c.camera_name} live stream`}
-                        className="w-full h-full object-contain"
+                      <LiveCameraPreview
+                        cameraId={c.id}
+                        isActive={true}
+                        className="w-full h-full"
                       />
                     ) : (
                       <div className="flex flex-col items-center justify-center h-full text-slate-600">
@@ -695,41 +678,11 @@ export default function CamerasPage() {
               autoFocus
             />
           </div>
-          {Object.keys(go2rtcChannels).length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1.5">go2rtc Channel</label>
-              <select
-                value={selectedChannel || ""}
-                onChange={(e) => {
-                  const key = e.target.value || null
-                  setSelectedChannel(key)
-                  if (key) {
-                    setCameraName(key)
-                    setStreamUrl(`rtsp://go2rtc:8554/${key}`)
-                  }
-                }}
-                className="input-field"
-              >
-                <option value="">Custom URL</option>
-                {Object.keys(go2rtcChannels).map((key) => (
-                  <option key={key} value={key}>{key}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <div>
             <label className="block text-sm font-medium text-foreground mb-1.5">Stream URL</label>
             <input
               value={streamUrl}
-              onChange={(e) => {
-                setStreamUrl(e.target.value)
-                const match = e.target.value.match(/rtsp:\/\/go2rtc:8554\/(\w+)/)
-                if (match && go2rtcChannels[match[1]]) {
-                  setSelectedChannel(match[1])
-                } else {
-                  setSelectedChannel(null)
-                }
-              }}
+              onChange={(e) => setStreamUrl(e.target.value)}
               className="input-field font-mono text-xs"
               placeholder="rtsp://192.168.1.100:554/stream"
             />
