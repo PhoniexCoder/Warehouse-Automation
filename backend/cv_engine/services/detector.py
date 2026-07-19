@@ -15,6 +15,8 @@ class BoxDetectorError(Exception):
 
 
 class BoxDetector:
+    _ALLOWED_MODEL_DIRS = {Path("/app/models").resolve(), Path("models").resolve()}
+
     def __init__(
         self,
         model_path: str | None = None,
@@ -37,6 +39,15 @@ class BoxDetector:
                 resolved = alt
             else:
                 raise BoxDetectorError(f"Model file not found: {resolved}")
+
+        is_allowed = any(
+            str(resolved).startswith(str(d)) for d in self._ALLOWED_MODEL_DIRS
+        )
+        if not is_allowed:
+            raise BoxDetectorError(
+                f"Model path not in allowed directories: {resolved}. "
+                f"Allowed: {self._ALLOWED_MODEL_DIRS}"
+            )
         self._model_path = str(resolved)
         LOGGER.info("Loading YOLO model from %s", self._model_path)
         self._model = YOLO(self._model_path)

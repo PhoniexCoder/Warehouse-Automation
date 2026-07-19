@@ -1,5 +1,5 @@
 import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from "axios"
-import type { ApiResponse, Alert, Camera, CountLog, DashboardSummary, InventoryItem, TokenData, User, Warehouse } from "./types"
+import type { ApiResponse, Alert, Camera, CountLog, DashboardSummary, InventoryItem, Nvr, TokenData, User, Warehouse } from "./types"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
 
@@ -197,6 +197,50 @@ export const api = {
     password: string
   }): Promise<any> => {
     const res = await client.post<ApiResponse>("/vms/dvrip-connect", payload)
+    return res.data.data
+  },
+
+  // NVRs
+  getNvrs: async (warehouseId?: string): Promise<Nvr[]> => {
+    const params = warehouseId ? { warehouse_id: warehouseId } : {}
+    const res = await client.get<ApiResponse>("/nvrs", { params })
+    return (res.data.data as Nvr[]) || []
+  },
+  createNvr: async (data: {
+    warehouse_id: string
+    name: string
+    ip_address: string
+    port?: number
+    protocol?: string
+    username?: string
+    password?: string
+    is_tailscale?: boolean
+  }): Promise<Nvr> => {
+    const res = await client.post<ApiResponse>("/nvrs", data)
+    return res.data.data as Nvr
+  },
+  updateNvr: async (id: string, data: {
+    name?: string
+    ip_address?: string
+    port?: number
+    username?: string
+    password?: string
+    is_tailscale?: boolean
+  }): Promise<Nvr> => {
+    const res = await client.put<ApiResponse>(`/nvrs/${id}`, data)
+    return res.data.data as Nvr
+  },
+  deleteNvr: async (id: string): Promise<void> => {
+    await client.delete(`/nvrs/${id}`)
+  },
+  checkNvrIp: async (ip: string, port?: number): Promise<{ ip: string; reachable: boolean; has_dvrip: boolean; has_rtsp: boolean }> => {
+    const res = await client.post<ApiResponse>("/nvrs/check-ip", { ip, port: port || 34567 })
+    return res.data.data as any
+  },
+  importNvrChannels: async (nvrId: string, channels: number[]): Promise<any> => {
+    const params = new URLSearchParams()
+    channels.forEach(ch => params.append("channels", ch.toString()))
+    const res = await client.post<ApiResponse>(`/nvrs/${nvrId}/import-channels?${params.toString()}`)
     return res.data.data
   },
 

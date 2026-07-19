@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from sqlalchemy import select
@@ -26,7 +26,7 @@ class CountLogService:
             box_id=box_id,
             camera_id=camera_id,
             movement_type=movement_type,
-            timestamp=timestamp or datetime.now(tz=None),
+            timestamp=timestamp or datetime.now(timezone.utc),
         )
         self._session.add(record)
         await self._session.flush()

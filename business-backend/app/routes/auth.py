@@ -2,6 +2,7 @@ import uuid
 import logging
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_session
@@ -21,6 +22,10 @@ from app.models.user import UserRole, User
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Auth"])
+
+
+class UpdateRoleRequest(BaseModel):
+    role: str
 
 
 @router.post("/register", status_code=201, summary="Register a new user (admin only)")
@@ -105,12 +110,12 @@ async def list_users(
 @router.put("/users/{user_id}/role", summary="Update user role (admin only)")
 async def update_role(
     user_id: uuid.UUID,
-    body: dict,
+    body: UpdateRoleRequest,
     _admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
     service = UserService(session)
-    new_role = UserRole[body["role"]]
+    new_role = UserRole[body.role]
     user = await service.update_role(user_id, new_role)
     return ApiResponse(
         success=True,

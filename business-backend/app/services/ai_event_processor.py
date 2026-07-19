@@ -74,6 +74,13 @@ class AiEventProcessor:
             ),
         )
 
+        return {
+            "box_id": str(box.id),
+            "tracking_id": tracking_id,
+            "counted": counted,
+            "movement_type": movement_type.value,
+        }
+
     async def _sync_inventory(
         self,
         qr_data: str | None,

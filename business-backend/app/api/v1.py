@@ -4,6 +4,7 @@ from app.routes import (
     ai_events,
     warehouses,
     cameras,
+    nvrs,
     boxes,
     inventory,
     count_logs,
@@ -19,6 +20,7 @@ v1_router.include_router(auth.router)
 v1_router.include_router(ai_events.router)
 v1_router.include_router(warehouses.router)
 v1_router.include_router(cameras.router)
+v1_router.include_router(nvrs.router)
 v1_router.include_router(boxes.router)
 v1_router.include_router(inventory.router)
 v1_router.include_router(count_logs.router)

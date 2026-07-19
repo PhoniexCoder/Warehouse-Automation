@@ -35,6 +35,7 @@ stream_cache/
 # Binaries (download at deploy time, don't track in git)
 *.exe
 go2rtc/go2rtc
+go2rtc/go2rtc.yaml
 mediamtx/
 
 # Large model files (use models/box_model.pt only)

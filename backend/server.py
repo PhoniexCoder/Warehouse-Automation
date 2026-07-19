@@ -12,7 +12,7 @@ import sys
 multiprocessing.set_start_method("spawn", force=True)
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -36,9 +36,13 @@ frame_store = FrameStore()
 
 app = FastAPI(title="Warehouse AI API", version="1.0.0")
 
+_CV_INTERNAL_KEY = os.getenv("INTERNAL_API_KEY", "")
+if not _CV_INTERNAL_KEY:
+    raise RuntimeError("FATAL: INTERNAL_API_KEY env var must be set")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,25 +63,29 @@ import time
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
 
 
+def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> None:
+    if x_internal_key != _CV_INTERNAL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+
+
 def _config_hash(config: dict) -> str:
-    keys = {"model_path", "roi", "source_type", "channel", "source", "detection_conf", "count_conf"}
+    keys = {"model_path", "roi", "source_type", "go2rtc_stream", "source", "detection_conf", "count_conf"}
     snapshot = {k: config.get(k) for k in sorted(keys)}
-    return hashlib.md5(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
 
 def sync_cameras_loop():
-    # Wait for both servers to be fully booted
     time.sleep(5)
     LOGGER.info("VMS Sync loop started")
     while True:
         try:
             url = f"{BUSINESS_BACKEND_URL}/api/v1/cameras/internal/active"
-            res = requests.get(url, timeout=5)
+            res = requests.get(url, timeout=5, headers={"X-Internal-Key": _CV_INTERNAL_KEY})
             if res.status_code == 200:
                 data = res.json()
                 if data.get("success"):
                     active_cameras = data["data"]
                     active_ids = set()
-                    
+
                     for cam in active_cameras:
                         try:
                             cam_id = cam["id"]
@@ -88,21 +96,9 @@ def sync_cameras_loop():
                                 continue
 
                             if stream_url.startswith("dvrip://"):
-                                from urllib.parse import urlparse, parse_qs
-                                parsed = urlparse(stream_url)
-                                params = parse_qs(parsed.query)
-                                if "channel" in params:
-                                    channel = int(params["channel"][0])
-                                elif parsed.path:
-                                    channel = int(parsed.path.strip("/"))
-                                else:
-                                    channel = 0
-                                if channel > 8:
-                                    LOGGER.debug("VMS: Skipping %s ch%d (go2rtc only has ch0-ch8)", cam.get("camera_name"), channel)
-                                    continue
                                 config = {
                                     "source_type": "dvrip",
-                                    "channel": channel,
+                                    "go2rtc_stream": cam_id,
                                     "line_y": 500,
                                     "display_name": cam.get("camera_name", ""),
                                     "target_fps": 5,
@@ -150,7 +146,7 @@ def sync_cameras_loop():
                                 camera_manager.start_camera(cam_id, config)
                         except Exception:
                             LOGGER.exception("VMS: Failed to start worker for camera %s", cam.get("id", "?"))
-                    
+
                     configured_ids = list(camera_manager._configs.keys())
                     for c_id in configured_ids:
                         if c_id not in active_ids:
@@ -181,7 +177,9 @@ def _shutdown() -> None:
 
 
 @app.get("/api/v1/cameras")
-def get_cameras() -> dict:
+def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> dict:
+    if x_internal_key != _CV_INTERNAL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
     return {
         "success": True,
         "data": camera_manager.get_status(),
@@ -190,8 +188,10 @@ def get_cameras() -> dict:
 
 
 @app.get("/api/v1/stream/{camera_id}")
-async def stream_camera(camera_id: str):
+async def stream_camera(camera_id: str, x_internal_key: str = Header(..., alias="X-Internal-Key")):
     cameras = camera_manager.get_status().get("cameras", {})
+    if x_internal_key != _CV_INTERNAL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
     if camera_id not in cameras:
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
 

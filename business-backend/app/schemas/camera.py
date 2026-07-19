@@ -1,7 +1,10 @@
 from datetime import datetime
 import uuid
+import re
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_ALLOWED_MODEL_RE = re.compile(r"^[a-zA-Z0-9_\-]+\.pt$")
 
 
 class CameraCreate(BaseModel):
@@ -11,6 +14,23 @@ class CameraCreate(BaseModel):
     status: str | None = None
     model_path: str | None = None
     roi: dict | list | None = None
+    nvr_id: uuid.UUID | None = None
+
+    @field_validator("model_path")
+    @classmethod
+    def validate_model_path(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        basename = v.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if not _ALLOWED_MODEL_RE.match(basename):
+            raise ValueError(
+                f"Invalid model_path: must be a .pt filename like 'box_model.pt', "
+                f"got '{basename}'"
+            )
+        return v
 
 
 class CameraUpdate(BaseModel):
@@ -19,6 +39,23 @@ class CameraUpdate(BaseModel):
     status: str | None = None
     model_path: str | None = None
     roi: dict | list | None = None
+    nvr_id: uuid.UUID | None = None
+
+    @field_validator("model_path")
+    @classmethod
+    def validate_model_path(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        basename = v.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if not _ALLOWED_MODEL_RE.match(basename):
+            raise ValueError(
+                f"Invalid model_path: must be a .pt filename like 'box_model.pt', "
+                f"got '{basename}'"
+            )
+        return v
 
 
 class CameraResponse(BaseModel):
@@ -30,6 +67,7 @@ class CameraResponse(BaseModel):
     last_seen: datetime | None
     model_path: str | None = None
     roi: dict | list | None = None
+    nvr_id: uuid.UUID | None = None
     health: dict | None = None
 
     model_config = {"from_attributes": True}

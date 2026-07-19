@@ -15,6 +15,7 @@ const navItems = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/inventory", label: "Inventory" },
   { href: "/dashboard/cameras", label: "Cameras" },
+  { href: "/dashboard/nvrs", label: "NVRs" },
   { href: "/dashboard/warehouses", label: "Warehouses" },
   { href: "/dashboard/alerts", label: "Alerts" },
 ]

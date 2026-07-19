@@ -11,10 +11,14 @@ LOGGER = logging.getLogger(__name__)
 
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "superadmin")
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "superadmin@warehouse.local")
-SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", "superadmin123")
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD", "")
 
 
 async def seed_super_admin(session: AsyncSession) -> None:
+    if not SUPER_ADMIN_PASSWORD:
+        LOGGER.warning("SUPER_ADMIN_PASSWORD not set, skipping super admin seed")
+        return
+
     stmt = select(User).where(User.role == UserRole.SUPER_ADMIN)
     result = await session.execute(stmt)
     existing = result.scalar_one_or_none()
@@ -42,7 +46,4 @@ async def seed_super_admin(session: AsyncSession) -> None:
     )
     session.add(user)
     await session.flush()
-    LOGGER.info(
-        "Super admin created: %s / %s (id=%s)",
-        SUPER_ADMIN_USERNAME, SUPER_ADMIN_PASSWORD, user.id,
-    )
+    LOGGER.info("Super admin created: %s (id=%s)", SUPER_ADMIN_USERNAME, user.id)

@@ -17,6 +17,7 @@ _QUEUE_GET_TIMEOUT = 1.0
 import os
 _BUSINESS_BACKEND_HOST = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
 _BUSINESS_BACKEND_URL = f"{_BUSINESS_BACKEND_HOST}/api/v1"
+_INTERNAL_KEY = os.getenv("INTERNAL_API_KEY", "")
 _FORWARD_TIMEOUT = 3.0
 
 
@@ -102,6 +103,7 @@ class EventConsumer(threading.Thread):
             resp = requests.post(
                 f"{_BUSINESS_BACKEND_URL}/events/detection",
                 json=payload,
+                headers={"X-Internal-Key": _INTERNAL_KEY},
                 timeout=_FORWARD_TIMEOUT,
             )
             if resp.status_code >= 400:
@@ -133,6 +135,7 @@ class EventConsumer(threading.Thread):
             resp = requests.post(
                 f"{_BUSINESS_BACKEND_URL}/events/invalid-qr",
                 json=payload,
+                headers={"X-Internal-Key": _INTERNAL_KEY},
                 timeout=_FORWARD_TIMEOUT,
             )
             if resp.status_code >= 400:

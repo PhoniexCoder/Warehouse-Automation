@@ -168,8 +168,8 @@ class CameraWorker:
             )
         elif self._source_type == "dvrip":
             go2rtc_rtsp_host = os.getenv("GO2RTC_RTSP_HOST", "localhost")
-            channel = self.config.get("channel", 0)
-            rtsp_url = f"rtsp://{go2rtc_rtsp_host}:8554/ch{channel}"
+            go2rtc_stream = self.config.get("go2rtc_stream", self.camera_id)
+            rtsp_url = f"rtsp://{go2rtc_rtsp_host}:8554/{go2rtc_stream}"
             from go2rtc.video_stream import VideoStream
 
             for attempt in range(1, 11):
@@ -218,8 +218,8 @@ class CameraWorker:
             from cv_engine.services.inference_engine import InferenceEngine
             self._frame_source = InferenceEngine(
                 source=self.config.get("source", "0"),
-                model_path=self.config.get("model_path"),
-                conf_threshold=self.config.get("conf", 0.5),
+                model_path=self.config.get("model_path") or None,
+                conf_threshold=self._detection_conf,
                 device=self.config.get("device", "cpu"),
                 input_size=self.config.get("input_size", 640),
                 frame_skip=self.config.get("frame_skip", 1),

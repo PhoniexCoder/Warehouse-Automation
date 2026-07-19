@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 
 import uvicorn
@@ -25,16 +26,18 @@ logging.basicConfig(
 
 LOGGER = logging.getLogger("app.main")
 
+_CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+
 app = FastAPI(
     title=SETTINGS.app_name,
     version=SETTINGS.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if SETTINGS.debug else None,
+    redoc_url="/redoc" if SETTINGS.debug else None,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

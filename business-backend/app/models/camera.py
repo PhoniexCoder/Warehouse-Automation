@@ -46,4 +46,11 @@ class Camera(Base):
         JSON, nullable=True,
     )
 
+    nvr_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("nvrs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     warehouse = relationship("Warehouse", back_populates="cameras")
+    nvr = relationship("Nvr", back_populates="cameras")

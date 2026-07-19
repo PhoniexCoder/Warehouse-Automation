@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-NVR_HOST="${NVR_HOST:-192.168.1.35}"
-NVR_PORT="${NVR_PORT:-34567}"
-NVR_USER="${NVR_USER:-uxdp}"
-NVR_PASS="${NVR_PASS:-cw8adc}"
+: "${NVR_HOST:?NVR_HOST must be set}"
+: "${NVR_PORT:=34567}"
+: "${NVR_USER:?NVR_USER must be set}"
+: "${NVR_PASS:?NVR_PASS must be set}"
 
 cat > /config/go2rtc.yaml <<EOF
 log:
@@ -29,8 +29,6 @@ for i in $(seq 0 8); do
 EOF
 done
 
-echo "--- Generated go2rtc.yaml ---"
-cat /config/go2rtc.yaml
-echo "--- Starting go2rtc ---"
+echo "go2rtc config generated. Starting go2rtc..."
 
 exec /usr/local/bin/go2rtc

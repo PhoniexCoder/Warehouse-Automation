@@ -26,6 +26,20 @@ export interface Warehouse {
   created_at: string
 }
 
+export interface Nvr {
+  id: string
+  warehouse_id: string
+  name: string
+  ip_address: string
+  port: number
+  protocol: string
+  is_tailscale: boolean
+  status: string
+  camera_count?: number
+  last_seen: string | null
+  created_at: string | null
+}
+
 export interface Camera {
   id: string
   warehouse_id: string
@@ -36,6 +50,7 @@ export interface Camera {
   last_seen: string | null
   model_path: string | null
   roi: { x: number; y: number }[] | null
+  nvr_id: string | null
   health?: { status: string; frames?: number; [key: string]: any } | null
 }
 

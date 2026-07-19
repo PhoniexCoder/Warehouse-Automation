@@ -7,6 +7,7 @@ from app.database.session import get_session
 from app.schemas.ai_event import DetectionEventPayload, InvalidQrEventPayload
 from app.schemas.common import ApiResponse
 from app.services.ai_event_processor import AiEventProcessor
+from app.auth.permissions import _verify_internal_key
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ router = APIRouter(tags=["AI Events"])
 async def receive_detection(
     body: DetectionEventPayload,
     session: AsyncSession = Depends(get_session),
+    _key: None = Depends(_verify_internal_key),
 ) -> ApiResponse:
     processor = AiEventProcessor(session)
     result = await processor.process_detection(
@@ -34,6 +36,7 @@ async def receive_detection(
 async def receive_invalid_qr(
     body: InvalidQrEventPayload,
     session: AsyncSession = Depends(get_session),
+    _key: None = Depends(_verify_internal_key),
 ) -> ApiResponse:
     processor = AiEventProcessor(session)
     result = await processor.process_invalid_qr(

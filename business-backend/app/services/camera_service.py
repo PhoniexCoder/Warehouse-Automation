@@ -22,6 +22,7 @@ class CameraService:
         status: str | None = None,
         model_path: str | None = None,
         roi: dict | list | None = None,
+        nvr_id: uuid.UUID | None = None,
     ) -> Camera:
         camera = Camera(
             warehouse_id=warehouse_id,
@@ -30,6 +31,7 @@ class CameraService:
             status=CameraStatus(status) if status else CameraStatus.ACTIVE,
             model_path=model_path,
             roi=roi,
+            nvr_id=nvr_id,
         )
         self._session.add(camera)
         await self._session.flush()

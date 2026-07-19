@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+: "${ADMIN_USERNAME:?ADMIN_USERNAME must be set}"
+: "${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}"
+: "${ADMIN_EMAIL:?ADMIN_EMAIL must be set}"
+
 echo "Waiting for business-backend to be ready..."
 until python3 -c "import urllib.request; urllib.request.urlopen('http://business:8001/health')" 2>/dev/null; do
   sleep 2
@@ -9,9 +13,14 @@ echo "Business backend is up."
 
 echo "Creating admin user..."
 python3 -c "
-import urllib.request, json, sys
+import urllib.request, json, sys, os
 
-data = json.dumps({'username': 'admin', 'email': 'admin@warehouse.local', 'password': 'admin', 'warehouse_id': None}).encode()
+data = json.dumps({
+    'username': os.environ['ADMIN_USERNAME'],
+    'email': os.environ['ADMIN_EMAIL'],
+    'password': os.environ['ADMIN_PASSWORD'],
+    'warehouse_id': None
+}).encode()
 req = urllib.request.Request(
     'http://business:8001/api/v1/register',
     data=data,

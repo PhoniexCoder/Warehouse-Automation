@@ -14,12 +14,25 @@ from app.schemas.common import ApiResponse
 from app.schemas.camera import CameraCreate, CameraUpdate, CameraResponse, VmsScanRequest, VmsImportRequest, DvripConnectRequest
 from app.services.camera_service import CameraService
 from app.services.audit_service import AuditService
-from app.auth.permissions import require_manager_up, require_any
+from app.auth.permissions import require_manager_up, require_any, _verify_internal_key
 from app.models.user import User
 
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Cameras"])
+
+
+async def _sync_go2rtc(session: AsyncSession) -> None:
+    """Trigger go2rtc config sync after a camera CRUD change."""
+    from app.services.go2rtc_config import sync_cameras
+    cam_service = CameraService(session)
+    all_cams = await cam_service.list_all()
+    cam_data = [
+        {"id": str(c.id), "stream_url": c.stream_url}
+        for c in all_cams
+        if c.status.value in ("active", "online") and c.stream_url
+    ]
+    await sync_cameras(cam_data)
 
 
 @router.post("/cameras", status_code=201, summary="Register a camera")
@@ -37,7 +50,9 @@ async def create_camera(
         status=body.status,
         model_path=body.model_path,
         roi=body.roi,
+        nvr_id=body.nvr_id,
     )
+    await _sync_go2rtc(session)
     await audit.log(action="camera.created")
     return ApiResponse(
         success=True,
@@ -57,7 +72,10 @@ async def list_cameras(
     ai_status = {}
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{SETTINGS.ai_engine_url}/api/v1/cameras")
+            resp = await client.get(
+                f"{SETTINGS.ai_engine_url}/api/v1/cameras",
+                headers={"X-Internal-Key": SETTINGS.internal_api_key},
+            )
             if resp.status_code == 200:
                 ai_status = resp.json().get("data", {}).get("cameras", {})
     except Exception as exc:
@@ -91,7 +109,10 @@ async def get_camera(
     ai_status = {}
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{SETTINGS.ai_engine_url}/api/v1/cameras")
+            resp = await client.get(
+                f"{SETTINGS.ai_engine_url}/api/v1/cameras",
+                headers={"X-Internal-Key": SETTINGS.internal_api_key},
+            )
             if resp.status_code == 200:
                 ai_status = resp.json().get("data", {}).get("cameras", {})
     except Exception as exc:
@@ -125,6 +146,7 @@ async def update_camera(
         update_fields[field_name] = getattr(body, field_name)
 
     camera = await service.update(camera_uuid, **update_fields)
+    await _sync_go2rtc(session)
     await audit.log(action="camera.updated")
     return ApiResponse(
         success=True,
@@ -141,6 +163,7 @@ async def delete_camera(
     service = CameraService(session)
     audit = AuditService(session)
     await service.delete(camera_uuid)
+    await _sync_go2rtc(session)
     await audit.log(action="camera.deleted")
     return ApiResponse(success=True, data={"deleted": True})
 
@@ -249,6 +272,7 @@ async def dvrip_connect(
 @router.get("/cameras/internal/active", summary="List active cameras (Internal use)")
 async def list_active_cameras_internal(
     session: AsyncSession = Depends(get_session),
+    _key: None = Depends(_verify_internal_key),
 ) -> ApiResponse:
     service = CameraService(session)
     cameras = await service.list_all()
@@ -283,7 +307,9 @@ MODEL_DIRS = [
 
 
 @router.get("/models", summary="List available ML model files")
-async def list_models() -> ApiResponse:
+async def list_models(
+    _any: User = Depends(require_any),
+) -> ApiResponse:
     models = []
     seen = set()
     for d in MODEL_DIRS:
@@ -294,7 +320,6 @@ async def list_models() -> ApiResponse:
             if resolved not in seen:
                 seen.add(resolved)
                 models.append({
-                    "path": resolved,
                     "name": pt.stem,
                     "size_bytes": pt.stat().st_size,
                 })

@@ -5,6 +5,7 @@ import logging
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import SETTINGS
 from app.core.exceptions import UnauthorizedError, ForbiddenError
 from app.database.session import get_session
 from app.auth.user_service import UserService
@@ -37,6 +38,11 @@ async def get_current_user(
     if not user.is_active:
         raise UnauthorizedError("Account is disabled")
     return user
+
+
+async def _verify_internal_key(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> None:
+    if x_internal_key != SETTINGS.internal_api_key:
+        raise UnauthorizedError("Invalid internal API key")
 
 
 class RoleChecker:

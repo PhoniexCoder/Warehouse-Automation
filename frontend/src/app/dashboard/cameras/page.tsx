@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api"
 import { useAuth } from "@/lib/auth"
-import type { Camera, Warehouse } from "@/lib/types"
+import type { Camera, Warehouse, Nvr } from "@/lib/types"
 import { Card } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
@@ -37,9 +37,9 @@ export default function CamerasPage() {
 
   // DVRIP connect state
   const [dvripModalOpen, setDvripModalOpen] = useState(false)
-  const [dvripHost, setDvripHost] = useState("192.168.1.35")
-  const [dvripUsername, setDvripUsername] = useState("uxdp")
-  const [dvripPassword, setDvripPassword] = useState("cw8adc")
+  const [dvripHost, setDvripHost] = useState("")
+  const [dvripUsername, setDvripUsername] = useState("")
+  const [dvripPassword, setDvripPassword] = useState("")
   const [dvripConnecting, setDvripConnecting] = useState(false)
 
   // go2rtc channel state
@@ -52,8 +52,8 @@ export default function CamerasPage() {
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([])
   const [selectedDeviceIp, setSelectedDeviceIp] = useState("")
   const [manualIp, setManualIp] = useState("")
-  const [nvrUsername, setNvrUsername] = useState("uxdp")
-  const [nvrPassword, setNvrPassword] = useState("cw8adc")
+  const [nvrUsername, setNvrUsername] = useState("")
+  const [nvrPassword, setNvrPassword] = useState("")
   const [scanningChannels, setScanningChannels] = useState(false)
   const [scannedChannels, setScannedChannels] = useState<any[]>([])
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
@@ -63,15 +63,19 @@ export default function CamerasPage() {
   const [models, setModels] = useState<{ path: string; name: string; size_bytes: number }[]>([])
   const [roi, setRoi] = useState<{ x: number; y: number }[] | null>(null)
   const [roiDrawing, setRoiDrawing] = useState(false)
+  const [nvrs, setNvrs] = useState<Nvr[]>([])
+  const [modalError, setModalError] = useState("")
 
   const fetchCamerasData = useCallback(async () => {
     try {
-      const [cams, whs] = await Promise.all([
+      const [cams, whs, nvrList] = await Promise.all([
         api.getCameras(),
         api.getWarehouses(),
+        api.getNvrs(),
       ])
       setCameras(cams)
       setWarehouses(whs)
+      setNvrs(nvrList)
     } catch {
       // silent
     } finally {
@@ -91,6 +95,7 @@ export default function CamerasPage() {
     setSelectedModel(null)
     setRoi(null)
     setRoiDrawing(false)
+    setModalError("")
     setModalOpen(true)
     try {
       const [streams, modelsList] = await Promise.all([
@@ -134,6 +139,7 @@ export default function CamerasPage() {
   async function handleSave() {
     if (!cameraName.trim()) return
     setSaving(true)
+    setModalError("")
     try {
       if (editing) {
         await api.updateCamera(editing.id, {
@@ -155,8 +161,8 @@ export default function CamerasPage() {
       }
       setModalOpen(false)
       await fetchCamerasData()
-    } catch {
-      // silent
+    } catch (err: any) {
+      setModalError(err.response?.data?.error?.message || err.message || "Failed to save camera")
     } finally {
       setSaving(false)
     }
@@ -226,8 +232,8 @@ export default function CamerasPage() {
       })
       setDiscoverModalOpen(false)
       await fetchCamerasData()
-    } catch {
-      // silent
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to import cameras")
     } finally {
       setImporting(false)
     }
@@ -251,11 +257,17 @@ export default function CamerasPage() {
       })
       setDvripModalOpen(false)
       await fetchCamerasData()
-    } catch {
-      // silent
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to connect via DVRIP")
     } finally {
       setDvripConnecting(false)
     }
+  }
+
+  function getNvrName(nvrId: string | null): string | null {
+    if (!nvrId) return null
+    const nvr = nvrs.find(n => n.id === nvrId)
+    return nvr?.name || null
   }
 
   const filtered = cameras.filter((c) => {
@@ -366,6 +378,14 @@ export default function CamerasPage() {
                         <p className="text-xs text-secondary mt-1.5 truncate font-mono">{c.stream_url}</p>
                       )}
                       <div className="flex items-center gap-2 mt-1.5">
+                        {c.nvr_id && (() => {
+                          const name = getNvrName(c.nvr_id)
+                          return name ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 font-medium">
+                              {name}
+                            </span>
+                          ) : null
+                        })()}
                         {c.model_path && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
                             {c.model_path.split("/").pop()?.replace(".pt", "")}
@@ -561,6 +581,7 @@ export default function CamerasPage() {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button type="submit" loading={saving}>{editing ? "Save Changes" : "Add Camera"}</Button>
           </div>
+          {modalError && <p className="text-sm text-red-600 mt-2">{modalError}</p>}
         </form>
       </Modal>
 
