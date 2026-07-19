@@ -161,6 +161,7 @@ class CameraStream:
         self._consecutive_errors = 0
         self._last_frame_time = 0.0
         self._total_frames = 0
+        self._current_codec = "h264"
 
         # WebSocket subscribers: dict[subscriber_id, queue_put_callable]
         self._ws_subscribers: dict[str, Callable] = {}
@@ -352,19 +353,20 @@ class CameraStream:
             if ptype not in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
                 continue
 
-            # Detect codec from I-frame metadata; default to h264
-            codec = "h264"
-            if "codec" in meta:
+            # Only update codec from I-frame metadata (P-frames have no codec field)
+            if ptype == TYPE_I_FRAME and "codec" in meta:
                 codec_byte = meta["codec"]
                 if codec_byte in (3, 0x12, 0x13, 0x53):
-                    codec = "h265"
+                    self._current_codec = "h265"
+                else:
+                    self._current_codec = "h264"
 
             self._total_frames += 1
             self._last_frame_time = time.time()
 
             # Decode I-frames, P-frames, and JPEG packets
             if ptype in (TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG):
-                jpeg_bytes = self._decode_to_jpeg(payload, ptype, codec, meta)
+                jpeg_bytes = self._decode_to_jpeg(payload, ptype, self._current_codec, meta)
                 if jpeg_bytes:
                     self._distribute_jpeg(jpeg_bytes)
 

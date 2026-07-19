@@ -207,6 +207,7 @@ def main():
     log.info("Connected — device=%s channels=%d — starting decode...", client.device_name, client.channel_count)
 
     decoder = None
+    current_codec = "h264"
     frame_count = 0
     output_dir = Path("test_frames")
     output_dir.mkdir(exist_ok=True)
@@ -239,17 +240,19 @@ def main():
             if ptype in (0xFA, 0xF9):
                 continue
 
-            codec = "h264"
-            if "codec" in meta:
+            # Only update codec from I-frame metadata (P-frames have no codec field)
+            if ptype == TYPE_I_FRAME and "codec" in meta:
                 cb = meta["codec"]
                 if cb in (3, 0x12, 0x13, 0x53):
-                    codec = "h265"
+                    current_codec = "h265"
+                else:
+                    current_codec = "h264"
 
-            if decoder is None or decoder._codec != codec:
+            if decoder is None or decoder._codec != current_codec:
                 if decoder:
-                    log.info("Codec changed to %s — restarting decoder", codec)
+                    log.info("Codec changed to %s — restarting decoder", current_codec)
                     decoder.stop()
-                decoder = PersistentDecoder(codec=codec, jpeg_quality=3)
+                decoder = PersistentDecoder(codec=current_codec, jpeg_quality=3)
                 if not decoder.start():
                     log.error("Failed to start decoder for codec %s", codec)
                     break
