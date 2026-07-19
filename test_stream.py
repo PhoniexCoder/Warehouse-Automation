@@ -236,6 +236,45 @@ def main():
                 type_name = type_names.get(ptype, f"0x{ptype:02X}")
                 log.info("[pkt #%d] type=%s payload=%d meta=%s", packet_count, type_name, len(payload), meta)
 
+                # On first I-frame, save raw payload and test FFmpeg decode methods
+                if ptype == TYPE_I_FRAME and frame_count == 0 and not os.path.exists("_diag_tested"):
+                    Path("_diag_tested").touch()
+                    raw_path = Path("_diag_raw.h264")
+                    raw_path.write_bytes(payload)
+                    log.info("DIAG: Saved %d-byte I-frame to %s", len(payload), raw_path)
+                    # Check first bytes
+                    if len(payload) >= 5:
+                        log.info("DIAG: First 20 bytes: %s", payload[:20].hex())
+                        nal_byte = payload[4] if len(payload) > 4 else 0
+                        log.info("DIAG: Byte after start code: 0x%02X (H.264 NAL type & 0x1F = %d, H.265 NAL type >> 1 = %d)",
+                                 nal_byte, nal_byte & 0x1F, nal_byte >> 1)
+                    # Test decode methods
+                    import subprocess as sp
+                    for label, cmd in [
+                        ("auto-detect", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
+                        ("-f h264", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
+                        ("-f hevc", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", str(raw_path), "-frames:v", "1", "-y", "_diag_out.jpg"]),
+                        ("pipe h264", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "h264", "-i", "pipe:0", "-frames:v", "1", "-y", "_diag_out_pipe.jpg"]),
+                        ("pipe hevc", ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "hevc", "-i", "pipe:0", "-frames:v", "1", "-y", "_diag_out_pipe.jpg"]),
+                    ]:
+                        try:
+                            if "pipe" in label:
+                                result = sp.run(cmd, input=payload, capture_output=True, timeout=5)
+                            else:
+                                result = sp.run(cmd, capture_output=True, timeout=5)
+                            out_path = Path("_diag_out.jpg") if "pipe" not in label else Path("_diag_out_pipe.jpg")
+                            if result.returncode == 0 and out_path.exists() and out_path.stat().st_size > 100:
+                                log.info("DIAG: %s → SUCCESS (%d bytes)", label, out_path.stat().st_size)
+                            else:
+                                err = result.stderr.decode(errors="replace")[:100] if result.stderr else "no output"
+                                log.info("DIAG: %s → FAILED (rc=%d): %s", label, result.returncode, err)
+                        except Exception as e:
+                            log.info("DIAG: %s → ERROR: %s", label, e)
+                    # Cleanup test files
+                    for f in ["_diag_out.jpg", "_diag_out_pipe.jpg"]:
+                        try: os.unlink(f)
+                        except: pass
+
             if elapsed > args.timeout and frame_count == 0:
                 log.error("TIMEOUT: No frames received in %d seconds. NVR may not be streaming on channel %d.",
                           args.timeout, args.channel)
