@@ -318,18 +318,17 @@ async def import_nvr_channels(
         except Exception:
             LOGGER.info("NVR %s RTSP not available — falling back to DVRIP", nvr.ip_address)
 
+    cam_service = CameraService(session)
     imported = []
     for ch in channels:
         stream_url = _build_stream_url(nvr, ch, prefer_rtsp=has_rtsp)
-        cam = Camera(
+        cam = await cam_service.create_or_update(
             warehouse_id=nvr.warehouse_id,
             camera_name=f"{nvr.name} Ch{ch}",
             stream_url=stream_url,
-            status=CameraStatus.ACTIVE,
+            status="active",
             nvr_id=nvr.id,
         )
-        session.add(cam)
-        await session.flush()
         imported.append({
             "id": str(cam.id),
             "camera_name": cam.camera_name,

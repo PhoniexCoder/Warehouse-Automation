@@ -210,7 +210,18 @@ export default function CamerasPage() {
         api.getWarehouses().catch((err) => { console.error("Error fetching warehouses:", err); return [] }),
         api.getNvrs().catch((err) => { console.error("Error fetching nvrs:", err); return [] }),
       ])
-      setCameras(cams)
+      const uniqueCams: Camera[] = []
+      const seen = new Set<string>()
+      for (const cam of cams) {
+        const key = cam.stream_url ? `${cam.camera_name}-${cam.stream_url}` : cam.id
+        if (!seen.has(key) && !seen.has(cam.id)) {
+          seen.add(key)
+          seen.add(cam.id)
+          uniqueCams.push(cam)
+        }
+      }
+
+      setCameras(uniqueCams)
       setWarehouses(whs)
       setNvrs(nvrList)
     } catch (err) {

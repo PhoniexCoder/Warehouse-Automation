@@ -222,7 +222,7 @@ async def import_vms_cameras(
             stream_url = f"rtsp://{body.username}:{body.password}@{body.ip}:554/user={body.username}&password={body.password}&channel={ch}&stream=1.sdp?"
         camera_name = f"NVR {body.ip} Channel {ch}"
         
-        camera = await service.create(
+        camera = await service.create_or_update(
             warehouse_id=body.warehouse_id,
             camera_name=camera_name,
             stream_url=stream_url,
@@ -262,18 +262,26 @@ async def dvrip_connect(
 
     active_channels = [c for c in channels if c.get("active")]
 
-    # Step 2: Create NVR record
-    nvr = Nvr(
-        warehouse_id=body.warehouse_id,
-        name=f"NVR {body.host}",
-        ip_address=body.host,
-        port=34567,
-        protocol="dvrip",
-        username=body.username,
-        password=body.password,
-    )
-    session.add(nvr)
-    await session.flush()
+    # Step 2: Create NVR record if not exists
+    stmt_nvr = select(Nvr).where(Nvr.ip_address == body.host)
+    res_nvr = await session.execute(stmt_nvr)
+    existing_nvr = res_nvr.scalars().first()
+    if existing_nvr:
+        nvr = existing_nvr
+        nvr.username = body.username
+        nvr.password = body.password
+    else:
+        nvr = Nvr(
+            warehouse_id=body.warehouse_id,
+            name=f"NVR {body.host}",
+            ip_address=body.host,
+            port=34567,
+            protocol="dvrip",
+            username=body.username,
+            password=body.password,
+        )
+        session.add(nvr)
+        await session.flush()
 
     # Step 2.5: Probe RTSP availability
     has_rtsp = False
@@ -302,7 +310,7 @@ async def dvrip_connect(
             stream_url = f"dvrip://{body.username}:{body.password}@{body.host}:34567/{ch}"
         camera_name = f"{nvr.name} Ch{ch}"
 
-        camera = await service.create(
+        camera = await service.create_or_update(
             warehouse_id=body.warehouse_id,
             camera_name=camera_name,
             stream_url=stream_url,

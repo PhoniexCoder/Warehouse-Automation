@@ -38,6 +38,49 @@ class CameraService:
         LOGGER.info("Camera created: %s (%s)", camera.id, camera_name)
         return camera
 
+    async def create_or_update(
+        self,
+        warehouse_id: uuid.UUID,
+        camera_name: str,
+        stream_url: str,
+        status: str | None = None,
+        model_path: str | None = None,
+        roi: dict | list | None = None,
+        nvr_id: uuid.UUID | None = None,
+    ) -> Camera:
+        stmt = select(Camera).where(Camera.stream_url == stream_url)
+        if nvr_id:
+            stmt = select(Camera).where(
+                (Camera.stream_url == stream_url) |
+                ((Camera.nvr_id == nvr_id) & (Camera.camera_name == camera_name))
+            )
+        result = await self._session.execute(stmt)
+        existing = result.scalars().first()
+        if existing:
+            existing.camera_name = camera_name
+            existing.stream_url = stream_url
+            if status:
+                existing.status = CameraStatus(status)
+            if model_path is not None:
+                existing.model_path = model_path
+            if roi is not None:
+                existing.roi = roi
+            if nvr_id:
+                existing.nvr_id = nvr_id
+            await self._session.flush()
+            LOGGER.info("Camera updated (upsert): %s (%s)", existing.id, camera_name)
+            return existing
+
+        return await self.create(
+            warehouse_id=warehouse_id,
+            camera_name=camera_name,
+            stream_url=stream_url,
+            status=status,
+            model_path=model_path,
+            roi=roi,
+            nvr_id=nvr_id,
+        )
+
     async def get(self, camera_uuid: uuid.UUID) -> Camera:
         camera = await self._session.get(Camera, camera_uuid)
         if not camera:
