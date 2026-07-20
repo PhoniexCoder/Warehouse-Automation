@@ -403,7 +403,7 @@ class CameraWorker:
         return vis
 
     def _publish_frame(self, frame: np.ndarray) -> None:
-        self._frame_store.publish(self.camera_id, frame)
+        self._frame_store.publish_annotated(self.camera_id, frame)
 
     def _report_health(self, status: str, extras: Optional[dict] = None) -> None:
         entry = {

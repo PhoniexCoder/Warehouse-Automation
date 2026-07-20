@@ -26,6 +26,8 @@ export class CameraStream {
   private frameTimer: ReturnType<typeof setTimeout> | null = null
   private onStatusChange?: (status: StreamStatus) => void
   private apiKey: string
+  private _reusableImg: HTMLImageElement | null = null
+  private _canvasInitialized = false
 
   constructor(
     cameraId: string,
@@ -56,6 +58,10 @@ export class CameraStream {
     if (this.img) {
       this.img.src = ""
       this.img = null
+    }
+    if (this._reusableImg) {
+      this._reusableImg.src = ""
+      this._reusableImg = null
     }
     if (this.frameTimer) {
       clearTimeout(this.frameTimer)
@@ -172,29 +178,28 @@ export class CameraStream {
   }
 
   private renderJpegFrame(buffer: ArrayBuffer): void {
+    if (!this._reusableImg) {
+      this._reusableImg = new Image()
+      this._reusableImg.onload = () => {
+        this.drawImageToCanvas(this._reusableImg!)
+        URL.revokeObjectURL(this._reusableImg!.src)
+      }
+      this._reusableImg.onerror = () => {
+        URL.revokeObjectURL(this._reusableImg!.src)
+      }
+    }
     const blob = new Blob([buffer], { type: "image/jpeg" })
     const url = URL.createObjectURL(blob)
-    const img = new Image()
-
-    img.onload = () => {
-      this.drawImageToCanvas(img)
-      URL.revokeObjectURL(url)
-    }
-
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-    }
-
-    img.src = url
+    this._reusableImg.src = url
   }
 
-  private drawImageToCanvas(img: HTMLImageElement | HTMLImageElement): void {
+  private drawImageToCanvas(img: HTMLImageElement): void {
     if (!this.ctx || !this.canvas) return
 
-    // Match canvas size to image
-    if (this.canvas.width !== img.naturalWidth || this.canvas.height !== img.naturalHeight) {
-      this.canvas.width = img.naturalWidth || 1920
-      this.canvas.height = img.naturalHeight || 1080
+    if (!this._canvasInitialized && img.naturalWidth > 0) {
+      this.canvas.width = img.naturalWidth
+      this.canvas.height = img.naturalHeight
+      this._canvasInitialized = true
     }
 
     this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height)

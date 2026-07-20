@@ -8,7 +8,6 @@ import asyncio
 import logging
 import multiprocessing
 import sys
-import uuid
 
 multiprocessing.set_start_method("spawn", force=True)
 
@@ -251,10 +250,10 @@ def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> di
 
 @app.websocket("/api/v1/stream/ws/{camera_id}")
 async def ws_stream(websocket: WebSocket, camera_id: str):
-    """WebSocket endpoint for live JPEG frame streaming.
+    """WebSocket endpoint for live annotated JPEG frame streaming.
 
-    Streams annotated JPEG frames (with YOLO bounding boxes & ROI overlay) from FrameStore
-    when available, falling back to raw RTSP frames.
+    Streams annotated JPEG frames (with YOLO bounding boxes & ROI overlay) from FrameStore.
+    CameraWorker writes annotated frames; this endpoint reads them exclusively — no raw frame fallback.
     """
     api_key = websocket.query_params.get("key", "")
     if _CV_INTERNAL_KEY and api_key and api_key != _CV_INTERNAL_KEY:
@@ -274,50 +273,22 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
     await websocket.accept()
     LOGGER.info("[ws:%s] Client connected", camera_id)
 
-    sub_id = str(uuid.uuid4())[:8]
-    loop = asyncio.get_running_loop()
-    frame_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
-
-    def _on_frame(jpeg_bytes: bytes):
-        try:
-            loop.call_soon_threadsafe(frame_queue.put_nowait, jpeg_bytes)
-        except RuntimeError:
-            pass
-
-    stream = stream_manager.get_stream(camera_id)
-    if stream:
-        stream.subscribe_websocket(sub_id, _on_frame)
-
     last_mtime = 0.0
 
     try:
         while True:
-            # Prioritize annotated frames from FrameStore (containing YOLO bounding boxes & ROI polygon overlay)
-            mtime = frame_store.latest_mtime(camera_id)
+            mtime = frame_store.latest_mtime(camera_id, annotated=True)
             if mtime > last_mtime:
-                annotated_jpeg = frame_store.latest_bytes(camera_id)
+                annotated_jpeg = frame_store.latest_bytes(camera_id, annotated=True)
                 if annotated_jpeg:
                     last_mtime = mtime
                     await websocket.send_bytes(annotated_jpeg)
-                    await asyncio.sleep(0.04)
-                    continue
-
-            # Fallback to raw stream from RTSP if no new annotated frame
-            try:
-                raw_jpeg = await asyncio.wait_for(frame_queue.get(), timeout=1.0)
-                await websocket.send_bytes(raw_jpeg)
-            except asyncio.TimeoutError:
-                try:
-                    await websocket.send_text("")
-                except Exception:
-                    break
+            await asyncio.sleep(0.05)
     except WebSocketDisconnect:
         pass
     except Exception as e:
         LOGGER.debug("[ws:%s] Client error: %s", camera_id, e)
     finally:
-        if stream:
-            stream.unsubscribe_websocket(sub_id)
         LOGGER.info("[ws:%s] Client disconnected", camera_id)
 
 
@@ -341,9 +312,9 @@ async def stream_camera(camera_id: str):
         no_frame_count = 0
         try:
             while True:
-                mtime = frame_store.latest_mtime(camera_id)
+                mtime = frame_store.latest_mtime(camera_id, annotated=True)
                 if mtime > last_mtime:
-                    data = frame_store.latest_bytes(camera_id)
+                    data = frame_store.latest_bytes(camera_id, annotated=True)
                     if data:
                         last_mtime = mtime
                         no_frame_count = 0
