@@ -383,6 +383,7 @@ async def list_models(
                 seen.add(resolved)
                 models.append({
                     "name": pt.stem,
+                    "path": pt.name,
                     "size_bytes": pt.stat().st_size,
                 })
     return ApiResponse(success=True, data=models)

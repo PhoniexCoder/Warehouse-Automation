@@ -7,6 +7,21 @@ from pydantic import BaseModel, Field, field_validator
 _ALLOWED_MODEL_RE = re.compile(r"^[a-zA-Z0-9_\-]+\.pt$")
 
 
+def _normalize_model_path(v: str) -> str | None:
+    v = v.strip()
+    if not v:
+        return None
+    basename = v.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if not basename.endswith(".pt"):
+        basename += ".pt"
+    if not _ALLOWED_MODEL_RE.match(basename):
+        raise ValueError(
+            f"Invalid model_path: must be a .pt filename like 'box_model.pt', "
+            f"got '{basename}'"
+        )
+    return basename
+
+
 class CameraCreate(BaseModel):
     warehouse_id: uuid.UUID
     camera_name: str = Field(..., min_length=1, max_length=255, examples=["Entry Gate Camera"])
@@ -21,16 +36,7 @@ class CameraCreate(BaseModel):
     def validate_model_path(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        v = v.strip()
-        if not v:
-            return None
-        basename = v.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        if not _ALLOWED_MODEL_RE.match(basename):
-            raise ValueError(
-                f"Invalid model_path: must be a .pt filename like 'box_model.pt', "
-                f"got '{basename}'"
-            )
-        return v
+        return _normalize_model_path(v)
 
 
 class CameraUpdate(BaseModel):
@@ -46,16 +52,7 @@ class CameraUpdate(BaseModel):
     def validate_model_path(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        v = v.strip()
-        if not v:
-            return None
-        basename = v.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        if not _ALLOWED_MODEL_RE.match(basename):
-            raise ValueError(
-                f"Invalid model_path: must be a .pt filename like 'box_model.pt', "
-                f"got '{basename}'"
-            )
-        return v
+        return _normalize_model_path(v)
 
 
 class CameraResponse(BaseModel):
