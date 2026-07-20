@@ -39,11 +39,11 @@ async def _sync_after_change(session: AsyncSession) -> None:
     from app.services.camera_service import CameraService
     cam_service = CameraService(session)
     all_cams = await cam_service.list_all()
-    cam_data = [
-        {"id": str(c.id), "stream_url": c.stream_url}
-        for c in all_cams
-        if c.status.value in ("active", "online") and c.stream_url
-    ]
+    cam_data = []
+    for c in all_cams:
+        st = c.status.value if hasattr(c.status, "value") else str(c.status or "")
+        if st in ("active", "online") and c.stream_url:
+            cam_data.append({"id": str(c.id), "stream_url": c.stream_url})
     await sync_cameras(cam_data)
 
 

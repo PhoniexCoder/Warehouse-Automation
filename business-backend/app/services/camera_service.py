@@ -28,7 +28,7 @@ class CameraService:
             warehouse_id=warehouse_id,
             camera_name=camera_name,
             stream_url=stream_url,
-            status=CameraStatus(status) if status else CameraStatus.ACTIVE,
+            status=CameraStatus(status) if isinstance(status, str) else (status or CameraStatus.ACTIVE),
             model_path=model_path,
             roi=roi,
             nvr_id=nvr_id,
@@ -60,7 +60,7 @@ class CameraService:
             existing.camera_name = camera_name
             existing.stream_url = stream_url
             if status:
-                existing.status = CameraStatus(status)
+                existing.status = CameraStatus(status) if isinstance(status, str) else status
             if model_path is not None:
                 existing.model_path = model_path
             if roi is not None:
