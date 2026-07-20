@@ -21,6 +21,7 @@ from app.models.nvr import Nvr
 from app.models.camera import Camera, CameraStatus
 from app.auth.permissions import require_manager_up, require_any
 from app.services.go2rtc_config import sync_cameras
+from app.services.camera_service import CameraService
 from app.services.nvr_discovery import NvrDiscoveryService
 
 LOGGER = logging.getLogger(__name__)
