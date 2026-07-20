@@ -12,6 +12,7 @@ from app.core.config import SETTINGS
 from app.database.session import get_session
 from app.schemas.common import ApiResponse
 from app.schemas.camera import CameraCreate, CameraUpdate, CameraResponse, VmsScanRequest, VmsImportRequest, DvripConnectRequest
+from app.schemas.nvr import NvrResponse
 from app.services.camera_service import CameraService
 from app.services.audit_service import AuditService
 from app.auth.permissions import require_manager_up, require_any, _verify_internal_key

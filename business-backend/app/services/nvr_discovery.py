@@ -275,8 +275,11 @@ class NvrDiscoveryService:
                 LOGGER.warning("DVRIP login failed: Ret=%s (expected 100 or 515)", ret_code)
                 return None
 
-            net_common = resp.get("NetWork.NetCommon", {})
-            channel_count = int(net_common.get("ChannelNum", 0))
+            # ChannelNum is at the top level for this NVR (DeviceType=HVR)
+            channel_count = int(resp.get("ChannelNum", 0))
+            if channel_count == 0:
+                net_common = resp.get("NetWork.NetCommon", {})
+                channel_count = int(net_common.get("ChannelNum", 0))
 
             if channel_count == 0:
                 for key, val in resp.items():
