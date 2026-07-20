@@ -121,7 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!adminUser) return
 
     const result = await api.impersonateUser(userId)
-    setStoredAdminTokens(result.access_token, result.refresh_token)
+
+    const currentAccess = localStorage.getItem("access_token")
+    const currentRefresh = localStorage.getItem("refresh_token")
+    if (currentAccess && currentRefresh) {
+      setStoredAdminTokens(currentAccess, currentRefresh)
+    }
     setStoredAdmin(adminUser)
 
     localStorage.setItem("access_token", result.access_token)
@@ -152,7 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }).catch(() => {
       logout()
     })
-  }, [logout])
+    router.push("/dashboard/users")
+  }, [logout, router])
 
   return (
     <AuthContext.Provider value={{ user, loading, isImpersonating, originalUser, login, logout, startImpersonation, endImpersonation }}>
