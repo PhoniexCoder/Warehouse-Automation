@@ -19,7 +19,6 @@ const navItems = [
   { href: "/dashboard/users", label: "Users" },
   { href: "/dashboard/alerts", label: "Alerts" },
   { href: "/dashboard/audit-logs", label: "Audit Logs" },
-  { href: "/dashboard/boxes", label: "Box Search" },
   { href: "/dashboard/detections", label: "Detections" },
 ]
 
