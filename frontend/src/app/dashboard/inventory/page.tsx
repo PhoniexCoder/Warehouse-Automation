@@ -27,6 +27,12 @@ export default function InventoryPage() {
   const [whId, setWhId] = useState("")
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [syncModalOpen, setSyncModalOpen] = useState(false)
+  const [syncQr, setSyncQr] = useState("")
+  const [syncMovement, setSyncMovement] = useState<"ENTRY" | "EXIT">("ENTRY")
+  const [syncCamera, setSyncCamera] = useState("cam_1")
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<any>(null)
 
   const fetch = useCallback(async () => {
     try {
@@ -76,6 +82,27 @@ export default function InventoryPage() {
     setModalOpen(true)
   }
 
+  async function handleSync() {
+    if (!syncQr.trim()) return
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const result = await api.syncInventory({
+        qr_data: syncQr,
+        movement_type: syncMovement,
+        camera_id: syncCamera,
+      })
+      setSyncResult(result)
+      if (result?.matched) {
+        setTimeout(() => { setSyncModalOpen(false); setSyncResult(null); setSyncQr(""); fetch() }, 2000)
+      }
+    } catch {
+      setSyncResult({ matched: false, error: true })
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   async function handleSave() {
     if (!productCode.trim() || !productName.trim()) return
     setSaving(true)
@@ -121,12 +148,20 @@ export default function InventoryPage() {
           <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Vistock Product Batches</h2>
           <p className="text-sm text-slate-500 mt-1">Track packaging flavors and conveyor scan logs</p>
         </div>
-        <Button onClick={openCreate} className="rounded-full shadow-md shadow-blue-500/10">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-          </svg>
-          Register Flavor Batch
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setSyncModalOpen(true)} className="rounded-full">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18" />
+            </svg>
+            Sync QR
+          </Button>
+          <Button onClick={openCreate} className="rounded-full shadow-md shadow-blue-500/10">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+            </svg>
+            Register Flavor Batch
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -318,6 +353,55 @@ export default function InventoryPage() {
         <div className="flex justify-end gap-3 mt-6">
           <Button variant="secondary" onClick={() => setConfirmDelete(null)} className="rounded-full">Cancel</Button>
           <Button variant="danger" onClick={() => confirmDelete && handleDelete(confirmDelete)} className="rounded-full">Delete</Button>
+        </div>
+      </Modal>
+
+      <Modal open={syncModalOpen} onClose={() => { setSyncModalOpen(false); setSyncResult(null) }} title="QR Inventory Sync" size="sm">
+        <div className="space-y-4">
+          <p className="text-xs text-slate-500">Manually sync a QR scan to increment or decrement inventory</p>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">QR Data</label>
+            <input
+              value={syncQr}
+              onChange={(e) => setSyncQr(e.target.value)}
+              className="input-field font-mono"
+              placeholder="e.g. BOX-1024"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Movement Type</label>
+            <select
+              value={syncMovement}
+              onChange={(e) => setSyncMovement(e.target.value as "ENTRY" | "EXIT")}
+              className="input-field"
+            >
+              <option value="ENTRY">ENTRY (increment stock)</option>
+              <option value="EXIT">EXIT (decrement stock)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Camera ID</label>
+            <input
+              value={syncCamera}
+              onChange={(e) => setSyncCamera(e.target.value)}
+              className="input-field font-mono"
+              placeholder="cam_1"
+            />
+          </div>
+          {syncResult && (
+            <div className={`p-3 rounded-lg text-xs font-medium ${syncResult.matched ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+              {syncResult.matched
+                ? `Matched: ${syncResult.product_name} — ${syncResult.quantity_before} → ${syncResult.quantity_after}`
+                : syncResult.error
+                  ? "Sync failed"
+                  : `No match for QR "${syncQr}". Alert #${syncResult.alert_id} created.`}
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => { setSyncModalOpen(false); setSyncResult(null) }} className="rounded-full">Cancel</Button>
+            <Button onClick={handleSync} loading={syncing} className="rounded-full">Sync</Button>
+          </div>
         </div>
       </Modal>
     </div>

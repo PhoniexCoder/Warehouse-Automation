@@ -24,6 +24,47 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all")
   const [severityFilter, setSeverityFilter] = useState<string>("all")
 
+  function getDismissed(): Set<string> {
+    if (typeof window === "undefined") return new Set()
+    try {
+      return new Set(JSON.parse(localStorage.getItem("dismissed_alerts") || "[]"))
+    } catch { return new Set() }
+  }
+
+  function saveDismissed(ids: Set<string>) {
+    localStorage.setItem("dismissed_alerts", JSON.stringify([...ids]))
+  }
+
+  const fetch = useCallback(async () => {
+    try {
+      const params: Record<string, string> = {}
+      if (typeFilter !== "all") params.alert_type = typeFilter
+      if (severityFilter !== "all") params.severity = severityFilter
+      const data = await api.getAlerts(params)
+      const dismissed = getDismissed()
+      setAlerts(data.filter((a) => !dismissed.has(a.id)))
+    } catch {
+      // silent
+    } finally {
+      setLoading(false)
+    }
+  }, [typeFilter, severityFilter])
+
+  function dismissAlert(id: string) {
+    const dismissed = getDismissed()
+    dismissed.add(id)
+    saveDismissed(dismissed)
+    setAlerts((prev) => prev.filter((a) => a.id !== id))
+  }
+
+  function dismissAll() {
+    const ids = new Set(alerts.map((a) => a.id))
+    const existing = getDismissed()
+    ids.forEach((id) => existing.add(id))
+    saveDismissed(existing)
+    setAlerts([])
+  }
+
   const fetch = useCallback(async () => {
     try {
       const params: Record<string, string> = {}
@@ -95,6 +136,15 @@ export default function AlertsPage() {
           <option value="warning">Warning</option>
           <option value="critical">Critical</option>
         </select>
+
+        {alerts.length > 0 && (
+          <button
+            onClick={dismissAll}
+            className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition ml-auto"
+          >
+            Dismiss All
+          </button>
+        )}
       </div>
 
       {alerts.length === 0 ? (
@@ -127,6 +177,15 @@ export default function AlertsPage() {
                       {format(new Date(alert.timestamp), "MMM d, yyyy HH:mm:ss")}
                     </p>
                   </div>
+                  <button
+                    onClick={() => dismissAlert(alert.id)}
+                    className="shrink-0 p-1 text-slate-300 hover:text-red-500 transition rounded"
+                    title="Dismiss alert"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               </Card>
             )

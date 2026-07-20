@@ -15,9 +15,13 @@ const navItems = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/inventory", label: "Inventory" },
   { href: "/dashboard/cameras", label: "Cameras & NVRs" },
+  { href: "/dashboard/streams", label: "Streams" },
   { href: "/dashboard/warehouses", label: "Warehouses" },
   { href: "/dashboard/users", label: "Users" },
   { href: "/dashboard/alerts", label: "Alerts" },
+  { href: "/dashboard/audit-logs", label: "Audit Logs" },
+  { href: "/dashboard/boxes", label: "Box Search" },
+  { href: "/dashboard/detections", label: "Detections" },
 ]
 
 function DashboardShell({ children }: { children: ReactNode }) {
@@ -31,7 +35,20 @@ function DashboardShell({ children }: { children: ReactNode }) {
   const [pwSaving, setPwSaving] = useState(false)
   const [pwError, setPwError] = useState("")
   const [pwSuccess, setPwSuccess] = useState("")
+  const [alertCount, setAlertCount] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    async function fetchAlertCount() {
+      try {
+        const alerts = await api.getAlerts()
+        setAlertCount(alerts.length)
+      } catch {}
+    }
+    fetchAlertCount()
+    const interval = setInterval(fetchAlertCount, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -79,10 +96,6 @@ function DashboardShell({ children }: { children: ReactNode }) {
   const displayRole = user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase() : "Operator"
   const isAdmin = user.role === "SUPER_ADMIN" || user.role === "ADMIN"
 
-  const filteredNavItems = isAdmin
-    ? [...navItems, { href: "/dashboard/users", label: "Users" }]
-    : navItems
-
   return (
     <div className="min-h-screen bg-[#f5f7fa] text-slate-800 flex flex-col font-sans">
       
@@ -120,7 +133,7 @@ function DashboardShell({ children }: { children: ReactNode }) {
           <nav className="hidden md:flex items-center bg-[#f1f3f7] p-1 rounded-full border border-slate-200/50">
             {navItems
               .filter((item) => {
-                if (item.href === "/dashboard/users") {
+                if (item.href === "/dashboard/users" || item.href === "/dashboard/audit-logs") {
                   return user.role === "ADMIN" || user.role === "SUPER_ADMIN"
                 }
                 return true
@@ -160,6 +173,11 @@ function DashboardShell({ children }: { children: ReactNode }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
                 <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white" />
+                {alertCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full border-2 border-white flex items-center justify-center text-[8px] font-bold text-white">
+                    {alertCount > 9 ? "9+" : alertCount}
+                  </span>
+                )}
               </Link>
             </div>
 
@@ -214,7 +232,7 @@ function DashboardShell({ children }: { children: ReactNode }) {
           <div className="flex items-center px-4 gap-2">
             {navItems
               .filter((item) => {
-                if (item.href === "/dashboard/users") {
+                if (item.href === "/dashboard/users" || item.href === "/dashboard/audit-logs") {
                   return user.role === "ADMIN" || user.role === "SUPER_ADMIN"
                 }
                 return true

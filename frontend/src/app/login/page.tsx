@@ -48,15 +48,9 @@ function LoginForm() {
         {/* Central Form Content Container */}
         <div className="my-auto max-w-md w-full mx-auto lg:mx-0 lg:pl-12 xl:pl-20 py-12">
           
-          <p className="text-xs font-bold tracking-wider text-slate-500 uppercase mb-2">
-            START FOR FREE
-          </p>
-          <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight mb-3">
+          <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight mb-8">
             Sign in to account<span className="text-blue-500">.</span>
           </h1>
-          <p className="text-sm text-slate-400 mb-8 font-medium">
-            Not a member? <a href="#" className="text-blue-500 hover:text-blue-400 hover:underline transition">Request access</a>
-          </p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
@@ -113,15 +107,9 @@ function LoginForm() {
 
             <div className="flex items-center gap-4 pt-2">
               <button
-                type="button"
-                className="flex-1 sm:flex-initial bg-[#252a37] hover:bg-[#2d3445] text-slate-200 py-3.5 px-8 rounded-full text-sm font-semibold transition active:scale-[0.98]"
-              >
-                Reset Password
-              </button>
-              <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 sm:flex-initial bg-blue-500 hover:bg-blue-600 text-white py-3.5 px-8 rounded-full text-sm font-semibold transition active:scale-[0.98] shadow-[0_4px_15px_rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-3.5 px-8 rounded-full text-sm font-semibold transition active:scale-[0.98] shadow-[0_4px_15px_rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? "Signing in..." : "Sign in"}
               </button>

@@ -324,4 +324,54 @@ export const api = {
     const res = await client.post<ApiResponse>(`/impersonate/${userId}`)
     return res.data.data as TokenData & { target_user: User }
   },
+
+  // Audit Logs
+  getAuditLogs: async (params?: {
+    limit?: number
+    offset?: number
+    user_id?: string
+    action?: string
+  }): Promise<any[]> => {
+    const res = await client.get<ApiResponse>("/audit-logs", { params })
+    return (res.data.data as any[]) || []
+  },
+
+  // Box Search
+  getBoxByTrackingId: async (trackingId: number): Promise<any> => {
+    const res = await client.get<ApiResponse>(`/boxes/by-tracking/${trackingId}`)
+    return res.data.data
+  },
+  getBoxesByQr: async (qrData: string): Promise<any[]> => {
+    const res = await client.get<ApiResponse>(`/boxes/by-qr/${encodeURIComponent(qrData)}`)
+    return (res.data.data as any[]) || []
+  },
+  getBoxDetail: async (boxId: string): Promise<any> => {
+    const res = await client.get<ApiResponse>(`/boxes/${boxId}`)
+    return res.data.data
+  },
+
+  // Detection History (from cv-engine via business backend proxy)
+  getDetections: async (params?: {
+    limit?: number
+    camera_id?: string
+  }): Promise<any[]> => {
+    const res = await client.get<ApiResponse>("/detections", { params })
+    return (res.data.data as any[]) || []
+  },
+
+  // Inventory Sync
+  syncInventory: async (data: {
+    qr_data: string
+    movement_type: "ENTRY" | "EXIT"
+    camera_id: string
+  }): Promise<any> => {
+    const res = await client.post<ApiResponse>("/inventory/sync", data)
+    return res.data.data
+  },
+
+  // go2rtc Streams
+  getGo2rtcStreams: async (): Promise<any> => {
+    const res = await client.get<ApiResponse>("/go2rtc/streams")
+    return res.data.data
+  },
 }

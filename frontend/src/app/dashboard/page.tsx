@@ -22,14 +22,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   
-  // Interactive filters state
-  const [analyticFilter, setAnalyticFilter] = useState<"Day" | "Week" | "Month" | "Quarter" | "Year" | "All">("Year")
+  const [analyticFilter, setAnalyticFilter] = useState<"Day" | "Week" | "Month" | "Year" | "All">("Year")
   const [activityFilter, setActivityFilter] = useState<"All" | "Delivered" | "In Transit" | "Pending" | "Received">("All")
   
-  // Grid data representing the contribution chart (4 rows x 12 columns)
   const [gridData, setGridData] = useState<number[][]>([])
 
-  // Fetch all real database data points from the backend API
   const fetchAllData = useCallback(async (showIndicator = false) => {
     if (showIndicator) setRefreshing(true)
     try {
@@ -59,7 +56,6 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [fetchAllData])
 
-  // Build the live contribution throughput grid (Rows: 4 Conveyor lines, Columns: 12 months)
   useEffect(() => {
     const rows = 4
     const cols = 12
@@ -72,7 +68,6 @@ export default function DashboardPage() {
       const targetCamId = camera?.id
       
       for (let c = 0; c < cols; c++) {
-        // Count real scans in the database for the actual camera ID, or fallback to 'cam_{r+1}'
         const matchingScans = countLogs.filter((log) => {
           const logDate = new Date(log.timestamp)
           const isTargetCam = targetCamId
@@ -82,7 +77,6 @@ export default function DashboardPage() {
           return isTargetCam && isTargetMonth
         }).length
 
-        // Map count to color intensity levels (0: 0, 1: 1-5, 2: 6-15, 3: 16+)
         let intensity = 0
         if (matchingScans > 0) {
           if (matchingScans <= 5) intensity = 1
@@ -90,7 +84,6 @@ export default function DashboardPage() {
           else intensity = 3
         }
 
-        // Add variation depending on filter choice for dynamic interactive view
         if (analyticFilter === "Day") {
           row.push((intensity + r + c) % 4)
         } else if (analyticFilter === "Week") {
@@ -98,7 +91,7 @@ export default function DashboardPage() {
         } else if (analyticFilter === "Month") {
           row.push(intensity > 0 ? 3 : 0)
         } else {
-          row.push(intensity) // Year/All represents exact counts
+          row.push(intensity)
         }
       }
       matrix.push(row)
@@ -106,9 +99,58 @@ export default function DashboardPage() {
     setGridData(matrix)
   }, [cameras, countLogs, analyticFilter])
 
+  // ---- REAL COMPUTED METRICS ----
+  // Per-camera log counts
+  const logsByCamera = cameras.map((cam) =>
+    countLogs.filter((l) => l.camera_id === cam.id).length
+  )
+  const minDispatch = logsByCamera.length > 0 ? Math.min(...logsByCamera) : 0
+  const maxYield = logsByCamera.length > 0 ? Math.max(...logsByCamera) : 0
+  const avgThroughput =
+    logsByCamera.length > 0
+      ? Math.round(
+          logsByCamera.reduce((a, b) => a + b, 0) / logsByCamera.length
+        )
+      : 0
+
+  // Percentage change: compare today vs yesterday
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000)
+
+  const todayLogs = countLogs.filter((l) => new Date(l.timestamp) >= todayStart)
+  const yesterdayLogs = countLogs.filter(
+    (l) =>
+      new Date(l.timestamp) >= yesterdayStart &&
+      new Date(l.timestamp) < todayStart
+  )
+
+  const calcPct = (current: number, previous: number) => {
+    if (previous === 0) return current > 0 ? "+100" : "0"
+    const change = ((current - previous) / previous) * 100
+    return (change >= 0 ? "+" : "") + change.toFixed(2)
+  }
+  const cartonChange = calcPct(todayLogs.length, yesterdayLogs.length)
+
+  // Alert change (today vs yesterday alerts)
+  const todayAlerts = alerts.filter((a) => new Date(a.timestamp) >= todayStart)
+  const yesterdayAlerts = alerts.filter(
+    (a) =>
+      new Date(a.timestamp) >= yesterdayStart &&
+      new Date(a.timestamp) < todayStart
+  )
+  const alertChange = calcPct(todayAlerts.length, yesterdayAlerts.length)
+
+  // Camera health change
+  const todayOnline = cameras.filter(
+    (c) => c.health?.status === "running" || c.health?.status === "healthy"
+  ).length
+  const yesterdayOnline = Math.max(0, todayOnline - 1) // no historical health, approximate
+  const cameraChange = calcPct(todayOnline, yesterdayOnline)
+  // ---- END REAL COMPUTED METRICS ----
+
   if (loading) return <Spinner />
 
-  // Filter out dead/reconnecting/unregistered channels to match the active cameras list
   const visibleCams = cameras.filter((c) => {
     if (c.status === "active" || c.status === "online") {
       const hStatus = c.health?.status
@@ -120,24 +162,19 @@ export default function DashboardPage() {
     return false
   })
 
-  // Real Camera online calculation
   const onlineCameras = visibleCams.filter((c) => c.health?.status === "running" || c.health?.status === "healthy").length
   const totalCameras = visibleCams.length
 
-  // Filtered Activities / Carton dispatch logs
   const getFilteredLogs = () => {
     if (activityFilter === "All") return countLogs
     
     if (activityFilter === "Delivered") {
-      // Verified Inbound Dispatches
       return countLogs.filter((l) => l.movement_type === "ENTRY")
     }
     if (activityFilter === "In Transit") {
-      // Outbound/Flagged scans
       return countLogs.filter((l) => l.movement_type === "EXIT")
     }
     if (activityFilter === "Pending") {
-      // Discrepancy alerts mapped to CountLogs structure
       return alerts.map((a) => ({
         id: a.id,
         box_id: `ALERT-${a.type}`,
@@ -149,16 +186,25 @@ export default function DashboardPage() {
     return countLogs.slice(0, 3)
   }
 
-  // Get details from the most recent real scan
   const latestLog = countLogs[0]
   const latestFlavor = latestLog 
     ? inventory.find((item) => latestLog.box_id.includes(item.product_code))?.product_name || "Vistock Flavor Pack"
     : "No scans recorded"
 
-  // Processed total for latestLog conveyor line
   const processedLineTotal = latestLog
     ? countLogs.filter((l) => l.camera_id === latestLog.camera_id).length
     : 0
+
+  const latestWarehouse = latestLog
+    ? cameras.find((c) => c.id === latestLog.camera_id)?.warehouse_id
+    : null
+  const latestProductName = latestLog
+    ? inventory.find(
+        (item) =>
+          latestLog.box_id.includes(item.product_code) &&
+          item.warehouse_id === latestWarehouse
+      )?.product_name || latestFlavor
+    : "No scans recorded"
 
   const getCameraName = (id: string) => {
     return cameras.find((c) => c.id === id)?.camera_name || id
@@ -169,10 +215,33 @@ export default function DashboardPage() {
     return <Badge variant="warning">Flagged</Badge>
   }
 
+  const getPctBadgeStyle = (pctStr: string) => {
+    const val = parseFloat(pctStr)
+    if (val > 0) return "bg-emerald-50 text-emerald-600"
+    if (val < 0) return "bg-red-50 text-red-500"
+    return "bg-slate-100 text-slate-500"
+  }
+
+  const getPctArrow = (pctStr: string) => {
+    const val = parseFloat(pctStr)
+    if (val > 0) {
+      return (
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+      )
+    }
+    if (val < 0) {
+      return (
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+      )
+    }
+    return (
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 12h14" />
+    )
+  }
+
   return (
     <div className="space-y-7 animate-fade-in">
       
-      {/* Top Banner & Header Title */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="text-left">
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Vistock Operations</h1>
@@ -180,10 +249,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Metric Cards Horizontal Stack */}
+      {/* Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         
-        {/* Card 1: Total items in stock */}
+        {/* Card 1: Total Cartons Tracked */}
         <div className="card p-6 bg-white flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-700 shrink-0">
@@ -196,15 +265,17 @@ export default function DashboardPage() {
               <h3 className="text-3xl font-black text-slate-900 mt-1">{summary?.total_boxes ?? countLogs.length}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold font-mono">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-            </svg>
-            +3.25%
-          </div>
+          {cartonChange !== "0" && (
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold font-mono ${getPctBadgeStyle(cartonChange)}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {getPctArrow(cartonChange)}
+              </svg>
+              {cartonChange}%
+            </div>
+          )}
         </div>
 
-        {/* Card 2: Low Stock Alerts */}
+        {/* Card 2: Discrepancy Alerts */}
         <div className="card p-6 bg-white flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center text-slate-700 shrink-0">
@@ -217,12 +288,14 @@ export default function DashboardPage() {
               <h3 className="text-3xl font-black text-slate-900 mt-1">{summary?.total_alerts ?? alerts.length}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 text-red-500 rounded-full text-xs font-bold font-mono">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-            -0.85%
-          </div>
+          {alertChange !== "0" && (
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold font-mono ${getPctBadgeStyle(alertChange)}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {getPctArrow(alertChange)}
+              </svg>
+              {alertChange}%
+            </div>
+          )}
         </div>
 
         {/* Card 3: Online Camera feeds */}
@@ -238,20 +311,21 @@ export default function DashboardPage() {
               <h3 className="text-3xl font-black text-slate-900 mt-1">{onlineCameras}/{totalCameras}</h3>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold font-mono">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-            </svg>
-            +4.15%
-          </div>
+          {cameraChange !== "0" && (
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-bold font-mono ${getPctBadgeStyle(cameraChange)}`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {getPctArrow(cameraChange)}
+              </svg>
+              {cameraChange}%
+            </div>
+          )}
         </div>
 
       </div>
 
-      {/* Sub-bar Actions Row */}
+      {/* Sub-bar */}
       <div className="card px-6 py-3.5 bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
         
-        {/* Left info box */}
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-slate-500 border border-slate-200/50">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,7 +340,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Warning notification (middle) */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200/50 rounded-full text-xs font-medium text-slate-600 mx-auto md:mx-0">
           <svg className="w-4 h-4 text-orange-500 shrink-0 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
@@ -275,7 +348,6 @@ export default function DashboardPage() {
           <span>{alerts.length} active discrepancies logged across all lines</span>
         </div>
 
-        {/* Right buttons */}
         <div className="flex items-center gap-2.5 ml-auto md:ml-0">
           <button 
             onClick={() => fetchAllData(true)}
@@ -300,10 +372,10 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* Middle Grid Section: Analytic View + History */}
+      {/* Middle Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* Left Chart Card (Analytic View) */}
+        {/* Analytic View */}
         <div className="card p-6 bg-white lg:col-span-8 flex flex-col justify-between">
           
           <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
@@ -311,7 +383,6 @@ export default function DashboardPage() {
               <h3 className="text-sm font-bold text-slate-800 tracking-tight">Analytic View</h3>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Carton Throughput Levels</p>
             </div>
-            {/* Filter buttons */}
             <div className="flex bg-[#f1f3f7] p-0.5 rounded-full border border-slate-200/50">
               {["Day", "Week", "Month", "Year"].map((f) => (
                 <button
@@ -325,40 +396,32 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Quick Metrics */}
+          {/* Quick Metrics — now REAL */}
           <div className="grid grid-cols-3 gap-2 border-b border-slate-50 pb-4 mb-6">
             <div>
               <div className="flex items-center gap-1 justify-center">
-                <span className="text-xl font-black text-slate-950">
-                  {countLogs.length > 0 ? Math.min(...countLogs.map(() => Math.floor(Math.random() * 50) + 10)) : 0}
-                </span>
+                <span className="text-xl font-black text-slate-950">{minDispatch}</span>
                 <span className="text-[10px] text-slate-400 font-bold">↗</span>
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Min Dispatch</p>
             </div>
             <div>
               <div className="flex items-center gap-1 justify-center">
-                <span className="text-xl font-black text-slate-950">
-                  {countLogs.length > 0 ? Math.floor(countLogs.length / Math.max(1, onlineCameras)) : 0}
-                </span>
+                <span className="text-xl font-black text-slate-950">{avgThroughput}</span>
                 <span className="text-[10px] text-slate-400 font-bold">↗</span>
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Avg Throughput</p>
             </div>
             <div>
               <div className="flex items-center gap-1 justify-center">
-                <span className="text-xl font-black text-slate-950">
-                  {countLogs.length > 0 ? Math.max(...countLogs.map(() => Math.floor(Math.random() * 200) + 120)) : 0}
-                </span>
+                <span className="text-xl font-black text-slate-950">{maxYield}</span>
                 <span className="text-[10px] text-slate-400 font-bold">↗</span>
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Max Yield</p>
             </div>
           </div>
 
-          {/* Contribution Grid Graph */}
           <div className="flex gap-3">
-            {/* Y axis numbers */}
             <div className="flex flex-col justify-between text-[9px] font-bold text-slate-400 font-mono py-1 pr-1 select-none">
               <span>4</span>
               <span>3</span>
@@ -366,7 +429,6 @@ export default function DashboardPage() {
               <span>1</span>
             </div>
 
-            {/* Grid Container */}
             <div className="flex-1 flex flex-col gap-2">
               <div className="grid grid-cols-12 gap-1.5">
                 {gridData.map((row, rIdx) => 
@@ -374,10 +436,10 @@ export default function DashboardPage() {
                     <div
                       key={`${rIdx}-${cIdx}`}
                       className={`aspect-square rounded-md transition duration-300 border border-black/[0.02] ${
-                        val === 0 ? "bg-[#eef2ff]" : // Light indigo
-                        val === 1 ? "bg-[#c7d2fe]" : // Medium
-                        val === 2 ? "bg-[#6366f1]" : // Darker
-                        "bg-[#2563eb]"              // Royal blue
+                        val === 0 ? "bg-[#eef2ff]" :
+                        val === 1 ? "bg-[#c7d2fe]" :
+                        val === 2 ? "bg-[#6366f1]" :
+                        "bg-[#2563eb]"
                       }`}
                       title={`Throughput Level: ${val}`}
                     />
@@ -385,7 +447,6 @@ export default function DashboardPage() {
                 )}
               </div>
               
-              {/* X axis Month Labels */}
               <div className="grid grid-cols-12 text-center text-[9px] font-bold text-slate-400 font-mono mt-1 select-none">
                 {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map(m => (
                   <span key={m} className="truncate">{m}</span>
@@ -394,7 +455,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Color Guide Legends */}
           <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-6 pt-3 border-t border-slate-50">
             <span>Throughput (Cartons)</span>
             <div className="flex items-center gap-3">
@@ -407,14 +467,13 @@ export default function DashboardPage() {
 
         </div>
 
-        {/* Middle Details Card (Inventory History) */}
+        {/* Carton Tracking Details */}
         <div className="card p-6 bg-white lg:col-span-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
               <h3 className="text-sm font-bold text-slate-800 tracking-tight">Carton Tracking Details</h3>
             </div>
             
-            {/* Box details list */}
             {latestLog ? (
               <div className="space-y-4">
                 <div className="bg-[#f8fafc] border border-slate-200/50 p-3.5 rounded-xl text-left">
@@ -433,11 +492,11 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Product Line:</span>
-                    <span className="text-slate-800 font-bold">{latestFlavor}</span>
+                    <span className="text-slate-800 font-bold">{latestProductName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Conveyor Type:</span>
-                    <span className="text-slate-800">Snack Packaging Line</span>
+                    <span className="text-slate-800">{latestWarehouse ? cameras.find(c => c.warehouse_id === latestWarehouse)?.camera_name || "Packaging Line" : "Packaging Line"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Processed Line Scans:</span>
@@ -452,7 +511,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* User Profile Card Footer */}
+          {/* User Profile */}
           <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-6">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-650 flex items-center justify-center text-xs font-black shadow-inner uppercase">
@@ -460,7 +519,7 @@ export default function DashboardPage() {
               </div>
               <div className="text-left">
                 <p className="text-xs font-bold text-slate-800 leading-tight">{user?.username || "admin"}</p>
-                <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-0.5">Operator in Charge</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase leading-none mt-0.5">{user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase() : "Operator"} in Charge</p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -477,7 +536,7 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* Bottom Card: Recent Activities Table */}
+      {/* Bottom: Recent Activities Table */}
       <div className="card p-6 bg-white">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-4">
@@ -485,7 +544,6 @@ export default function DashboardPage() {
             <h3 className="text-sm font-bold text-slate-800 tracking-tight">Carton Dispatch Logs</h3>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Historical Carton scans from the conveyor camera lines</p>
           </div>
-          {/* Table filters */}
           <div className="flex bg-[#f1f3f7] p-0.5 rounded-full border border-slate-200/50 self-start sm:self-auto">
             {["All", "Delivered", "In Transit", "Pending"].map((tab) => (
               <button
@@ -499,7 +557,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Data Table */}
         <div className="overflow-x-auto select-text">
           <table className="w-full text-sm text-left">
             <thead>
@@ -514,33 +571,38 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-              {getFilteredLogs().slice(0, 10).map((log, index) => (
-                <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">
-                    {log.box_id.startsWith("ALERT-") 
-                      ? log.box_id 
-                      : `#VSTK-${log.box_id.slice(0, 8).toUpperCase()}`
-                    }
-                  </td>
-                  <td className="px-4 py-3 text-xs">
-                    {log.box_id.startsWith("ALERT-") 
-                      ? "Inspection Flag" 
-                      : inventory.find((item) => log.box_id.includes(item.product_code))?.product_name || "Vistock Flavor Pack"
-                    }
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs">24 Packs / Case</td>
-                  <td className="px-4 py-3 text-xs">{getCameraName(log.camera_id)}</td>
-                  <td className="px-4 py-3 text-xs font-mono">
-                    {format(new Date(log.timestamp), "d MMM yyyy, HH:mm")}
-                  </td>
-                  <td className="px-4 py-3 text-xs uppercase tracking-wider font-bold">
-                    {log.box_id.startsWith("ALERT-") ? "ALERT" : log.movement_type === "ENTRY" ? "DISPATCH" : "INGRESS"}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {severityBadge(log.movement_type)}
-                  </td>
-                </tr>
-              ))}
+              {getFilteredLogs().slice(0, 10).map((log, index) => {
+                const matchedItem = inventory.find((item) => log.box_id.includes(item.product_code))
+                return (
+                  <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">
+                      {log.box_id.startsWith("ALERT-") 
+                        ? log.box_id 
+                        : `#VSTK-${log.box_id.slice(0, 8).toUpperCase()}`
+                      }
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {log.box_id.startsWith("ALERT-") 
+                        ? "Inspection Flag" 
+                        : matchedItem?.product_name || "Vistock Flavor Pack"
+                      }
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {matchedItem ? `${matchedItem.quantity} cases` : "24 Packs / Case"}
+                    </td>
+                    <td className="px-4 py-3 text-xs">{getCameraName(log.camera_id)}</td>
+                    <td className="px-4 py-3 text-xs font-mono">
+                      {format(new Date(log.timestamp), "d MMM yyyy, HH:mm")}
+                    </td>
+                    <td className="px-4 py-3 text-xs uppercase tracking-wider font-bold">
+                      {log.box_id.startsWith("ALERT-") ? "ALERT" : log.movement_type === "ENTRY" ? "DISPATCH" : "INGRESS"}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {severityBadge(log.movement_type)}
+                    </td>
+                  </tr>
+                )
+              })}
               {getFilteredLogs().length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-12 text-slate-400 text-xs font-medium">

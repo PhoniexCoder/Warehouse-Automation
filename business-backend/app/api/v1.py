@@ -12,6 +12,7 @@ from app.routes import (
     audit_logs,
     dashboard,
     auth,
+    detections,
 )
 
 v1_router = APIRouter(prefix="/api/v1")
@@ -27,5 +28,6 @@ v1_router.include_router(count_logs.router)
 v1_router.include_router(alerts.router)
 v1_router.include_router(audit_logs.router)
 v1_router.include_router(dashboard.router)
+v1_router.include_router(detections.router)
 
 __all__ = ["v1_router"]

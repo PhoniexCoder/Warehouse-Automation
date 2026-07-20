@@ -84,8 +84,8 @@ export interface DashboardSummary {
   total_warehouses: number
   total_cameras: number
   total_alerts: number
-  inventory_count: number
-  recent_alerts: Alert[]
-  cameras: Camera[]
-  movement_summary: Record<string, number>
+  total_inventory_items: number
+  total_count_logs: number
+  entry_count: number
+  exit_count: number
 }
