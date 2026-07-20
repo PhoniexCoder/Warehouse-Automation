@@ -63,12 +63,12 @@ def write_config(cameras: list[dict]) -> str:
 
 
 async def add_stream(camera_id: str, source_url: str) -> bool:
-    """PUT a stream into go2rtc via its REST API."""
+    """Add a stream to go2rtc via its REST API (POST /api/streams)."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.put(
-                f"{GO2RTC_API_URL}/api/streams/{camera_id}",
-                json={"source": source_url},
+            resp = await client.post(
+                f"{GO2RTC_API_URL}/api/streams",
+                json={"name": camera_id, "source": source_url},
             )
             if resp.status_code < 300:
                 LOGGER.debug("go2rtc stream added: %s", camera_id)
@@ -81,7 +81,7 @@ async def add_stream(camera_id: str, source_url: str) -> bool:
 
 
 async def remove_stream(camera_id: str) -> bool:
-    """DELETE a stream from go2rtc via its REST API."""
+    """Remove a stream from go2rtc via its REST API."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.delete(f"{GO2RTC_API_URL}/api/streams/{camera_id}")

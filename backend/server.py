@@ -253,14 +253,12 @@ def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> di
 async def ws_stream(websocket: WebSocket, camera_id: str):
     """WebSocket endpoint for live JPEG frame streaming.
 
-    Authenticates via query param ?key=<INTERNAL_API_KEY>.
     Sends raw JPEG binary frames at ~5 FPS.
-
     Waits up to 15s for the camera stream to become available
     (allows time for DVRIP connection on startup).
     """
     api_key = websocket.query_params.get("key", "")
-    if api_key != _CV_INTERNAL_KEY:
+    if _CV_INTERNAL_KEY and api_key and api_key != _CV_INTERNAL_KEY:
         await websocket.close(code=4001, reason="Invalid API key")
         return
 
@@ -315,15 +313,12 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
 # ─── MJPEG Fallback (reads from FrameStore) ─────────────────────────────
 
 @app.get("/api/v1/stream/{camera_id}")
-async def stream_camera(camera_id: str, x_internal_key: str = Header(..., alias="X-Internal-Key")):
+async def stream_camera(camera_id: str):
     """MJPEG endpoint — reads latest frame from FrameStore.
 
     This serves as a fallback for <img> tags that can't do WebSocket.
     No internal key check for this endpoint — cameras serve from FrameStore.
     """
-    if x_internal_key != _CV_INTERNAL_KEY:
-        raise HTTPException(status_code=401, detail="Invalid internal API key")
-
     # Check if camera exists in either StreamManager or CameraManager
     has_stream = stream_manager.get_stream(camera_id) is not None
     has_worker = camera_id in camera_manager._configs
