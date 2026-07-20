@@ -1,6 +1,8 @@
 services:
   db:
     image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -17,18 +19,15 @@ services:
     build:
       context: ./business-backend
       dockerfile: Dockerfile
-    ports:
-      - "127.0.0.1:8001:8001"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/warehouse"
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@localhost:5432/warehouse"
       HOST: "0.0.0.0"
       PORT: "8001"
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
-      AI_ENGINE_URL: "http://cv-engine:8000"
+      AI_ENGINE_URL: "http://localhost:8000"
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-superadmin}
@@ -37,7 +36,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@warehouse.com}
-      GO2RTC_API_URL: ${GO2RTC_API_URL:-http://host.docker.internal:1984}
+      GO2RTC_API_URL: ${GO2RTC_API_URL:-http://localhost:1984}
       GO2RTC_CONFIG_PATH: ${GO2RTC_CONFIG_PATH:-/config/go2rtc.yaml}
       GO2RTC_CONTAINER: ${GO2RTC_CONTAINER:-go2rtc}
       DOCKER_SOCKET: ${DOCKER_SOCKET:-/var/run/docker.sock}
@@ -65,7 +64,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      BUSINESS_BACKEND_URL: "http://business:8001"
+      BUSINESS_BACKEND_URL: "http://host.docker.internal:8001"
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       MODEL_PATH: "/app/models/box_model.pt"
@@ -105,12 +104,14 @@ services:
       context: ./frontend
       dockerfile: ../docker/Dockerfile.frontend
       args:
-        BACKEND_URL: "http://business:8001"
+        BACKEND_URL: "http://host.docker.internal:8001"
     ports:
       - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NEXTAUTH_URL: "http://localhost:3000"
-      BACKEND_URL: "http://business:8001"
+      BACKEND_URL: "http://host.docker.internal:8001"
       NEXT_PUBLIC_CV_ENGINE_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env}
     depends_on:
       business:
