@@ -214,7 +214,7 @@ async def check_nvr_ip(
     )
 
 
-@router.post("/nvrs/discover", summary="xMEye-style: enter IP, discover all cameras on NVR")
+@router.post("/nvrs/discover", summary="Enter IP, discover all cameras on NVR")
 async def discover_nvr(
     body: NvrDiscoverRequest,
     _any: None = Depends(require_any),

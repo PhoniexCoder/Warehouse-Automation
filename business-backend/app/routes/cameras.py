@@ -241,7 +241,7 @@ async def dvrip_connect(
     _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse:
-    """xMEye-style one-click DVRIP setup.
+    """One-click DVRIP setup.
 
     Discovers NVR device info, probes channels for active video,
     creates an NVR record, and imports only active channels.

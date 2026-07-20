@@ -438,12 +438,6 @@ export default function CamerasPage() {
   }
 
   const filtered = cameras.filter((c) => {
-    if (c.status === "active" || c.status === "online") {
-      const hStatus = c.health?.status
-      if (hStatus === "reconnecting" || hStatus === "dead" || hStatus === "error") {
-        return false
-      }
-    }
     if (statusFilter === "all") return true
     return c.status === statusFilter
   })
@@ -1019,7 +1013,7 @@ export default function CamerasPage() {
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-700">
-                  <strong>xMEye Smart Connect:</strong> Enter your NVR IP and credentials.
+                   <strong>Smart Connect:</strong> Enter your NVR IP and credentials.
                   We'll connect, discover all cameras, and show you which channels are active.
                 </p>
               </div>

@@ -1,4 +1,4 @@
-"""Direct DVRIP/Sofia binary protocol client for xMEye-compatible NVRs.
+"""Direct DVRIP/Sofia binary protocol client for DVRIP-compatible NVRs.
 
 Based on the actual go2rtc DVRIP implementation:
 https://github.com/AlexxIT/go2rtc/blob/master/pkg/dvrip/client.go
