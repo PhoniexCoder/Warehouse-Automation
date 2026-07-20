@@ -10,6 +10,9 @@ LOGGER = logging.getLogger(__name__)
 
 GO2RTC_API_URL = os.getenv("GO2RTC_API_URL", "http://host.docker.internal:1984")
 GO2RTC_CONFIG_PATH = os.getenv("GO2RTC_CONFIG_PATH", "/config/go2rtc.yaml")
+GO2RTC_CONTAINER = os.getenv("GO2RTC_CONTAINER", "go2rtc")
+DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "unix:///var/run/docker.sock")
+
 
 _YAML_HEADER = """\
 log:
@@ -17,6 +20,8 @@ log:
 
 api:
   listen: ":1984"
+  origins:
+    - "*"
 
 rtsp:
   listen: ":8554"
@@ -32,7 +37,7 @@ def generate_yaml(cameras: list[dict]) -> str:
     """Generate go2rtc.yaml content from a list of camera dicts.
 
     Each camera dict must have 'id' (UUID str) and 'stream_url'.
-    Uses simple string format: `  cam_id: "dvrip://..."` (single source per camera).
+    Uses dict format: `  cam_id: { source: "dvrip://..." }` per go2rtc convention.
     """
     lines = [_YAML_HEADER.rstrip()]
     for cam in cameras:
@@ -40,7 +45,8 @@ def generate_yaml(cameras: list[dict]) -> str:
         url = cam.get("stream_url", "")
         if not url:
             continue
-        lines.append(f'  {cam_id}: "{url}"')
+        lines.append(f'  {cam_id}:')
+        lines.append(f'    source: "{url}"')
     if len(cameras) == 0:
         lines.append("  {}")
     return "\n".join(lines) + "\n"
@@ -62,68 +68,55 @@ def write_config(cameras: list[dict]) -> str:
     return config_hash
 
 
-async def add_stream(camera_id: str, source_url: str) -> bool:
-    """Add a stream to go2rtc via its REST API (POST /api/streams)."""
+async def restart_go2rtc() -> bool:
+    """Restart the go2rtc Docker container via Docker Engine API.
+
+    go2rtc only reads its config file at startup, so a restart is required
+    after writing a new config. Uses the Docker socket mounted into the
+    business-backend container.
+    """
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        socket_path = DOCKER_SOCKET.replace("unix://", "")
+        # Use httpx with unix socket transport
+        transport = httpx.AsyncHTTPTransport(uds=socket_path)
+        async with httpx.AsyncClient(transport=transport, timeout=10.0) as client:
+            # Restart the go2rtc container (SIGTERM then SIGKILL after 10s)
             resp = await client.post(
-                f"{GO2RTC_API_URL}/api/streams",
-                json={"name": camera_id, "source": source_url},
+                f"http://localhost/containers/{GO2RTC_CONTAINER}/restart?t=5",
             )
-            if resp.status_code < 300:
-                LOGGER.debug("go2rtc stream added: %s", camera_id)
+            if resp.status_code == 204:
+                LOGGER.info("go2rtc container restarted successfully")
                 return True
-            LOGGER.warning("go2rtc add_stream failed: %s %s", resp.status_code, resp.text[:200])
+            LOGGER.warning("go2rtc restart failed: %s %s", resp.status_code, resp.text[:200])
             return False
-    except Exception as e:
-        LOGGER.warning("go2rtc add_stream error: %s", e)
+    except FileNotFoundError:
+        LOGGER.warning("Docker socket not found at %s — cannot auto-restart go2rtc. "
+                        "Please restart manually: docker restart %s",
+                        DOCKER_SOCKET, GO2RTC_CONTAINER)
         return False
-
-
-async def remove_stream(camera_id: str) -> bool:
-    """Remove a stream from go2rtc via its REST API."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.delete(f"{GO2RTC_API_URL}/api/streams/{camera_id}")
-            if resp.status_code < 300:
-                LOGGER.debug("go2rtc stream removed: %s", camera_id)
-                return True
-            LOGGER.warning("go2rtc remove_stream failed: %s %s", resp.status_code, resp.text[:200])
-            return False
     except Exception as e:
-        LOGGER.warning("go2rtc remove_stream error: %s", e)
+        LOGGER.warning("go2rtc restart error: %s", e)
         return False
-
-
-async def get_streams() -> dict:
-    """GET all current streams from go2rtc."""
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{GO2RTC_API_URL}/api/streams")
-            if resp.status_code == 200:
-                return resp.json()
-    except Exception as e:
-        LOGGER.warning("go2rtc get_streams error: %s", e)
-    return {}
 
 
 async def sync_cameras(cameras: list[dict]) -> str:
-    """Full sync: reconcile go2rtc streams with the database, rewrite config file.
+    """Full sync: write go2rtc config and restart to apply.
 
-    Returns the config hash after sync.
+    1. Generate and write go2rtc.yaml from DB cameras
+    2. Restart go2rtc so it picks up the new config
+    3. Return config hash
+
+    go2rtc reads its config only at startup, so restart is required
+    for DVRIP streams. The container restarts in ~2 seconds.
     """
-    expected = {cam["id"]: cam["stream_url"] for cam in cameras if cam.get("stream_url")}
-    actual = await get_streams()
+    old_hash = write_config(cameras)
 
-    to_add = set(expected) - set(actual)
-    to_remove = set(actual) - set(expected)
+    # Restart go2rtc to apply new config
+    restarted = await restart_go2rtc()
+    if restarted:
+        LOGGER.info("go2rtc sync complete: %d cameras, restarting", len(cameras))
+    else:
+        LOGGER.warning("go2rtc sync: config written but restart failed — "
+                       "streams won't update until manual restart")
 
-    for cam_id in to_add:
-        await add_stream(cam_id, expected[cam_id])
-    for cam_id in to_remove:
-        await remove_stream(cam_id)
-
-    if to_add or to_remove:
-        LOGGER.info("go2rtc sync: added=%d removed=%d", len(to_add), len(to_remove))
-
-    return write_config(cameras)
+    return old_hash

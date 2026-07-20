@@ -18,7 +18,7 @@ services:
       context: ./business-backend
       dockerfile: Dockerfile
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
@@ -39,9 +39,13 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@warehouse.com}
       GO2RTC_API_URL: ${GO2RTC_API_URL:-http://host.docker.internal:1984}
       GO2RTC_CONFIG_PATH: ${GO2RTC_CONFIG_PATH:-/config/go2rtc.yaml}
+      GO2RTC_CONTAINER: ${GO2RTC_CONTAINER:-go2rtc}
+      DOCKER_SOCKET: ${DOCKER_SOCKET:-/var/run/docker.sock}
     volumes:
       - ./docker/entrypoint-business.sh:/app/entrypoint.sh:ro
       - ./models:/app/models:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./go2rtc:/config
     depends_on:
       db:
         condition: service_healthy
@@ -57,7 +61,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.cv
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
