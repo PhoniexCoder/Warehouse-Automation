@@ -212,8 +212,8 @@ class NvrDiscoveryService:
         LOGGER.info("DVRIP %s: %d/%d channels active", ip, active_count, channel_count)
         return channels
 
-    @staticmethod
-    def _dvrip_get_channel_count(ip: str, port: int, username: str, password: str, timeout: float = 5.0) -> Optional[int]:
+    @classmethod
+    def _dvrip_get_channel_count(cls, ip: str, port: int, username: str, password: str, timeout: float = 5.0) -> Optional[int]:
         """Connect via DVRIP, login, and extract ChannelNum from response."""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -274,8 +274,8 @@ class NvrDiscoveryService:
             except OSError:
                 pass
 
-    @staticmethod
-    def _dvrip_probe_channel(ip: str, port: int, username: str, password: str, channel: int, timeout: float = 4.0) -> bool:
+    @classmethod
+    def _dvrip_probe_channel(cls, ip: str, port: int, username: str, password: str, channel: int, timeout: float = 4.0) -> bool:
         """Probe a single DVRIP channel for active video.
 
         Connects, logs in, sends OPMonitor Claim+Start, and checks if video arrives.
