@@ -1,14 +1,14 @@
-import asyncio
 import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 
 import httpx
 
 LOGGER = logging.getLogger(__name__)
 
-GO2RTC_API_URL = os.getenv("GO2RTC_API_URL", "http://host.docker.internal:1984")
+GO2RTC_API_URL = os.getenv("GO2RTC_API_URL", "http://localhost:1476")
 GO2RTC_CONFIG_PATH = os.getenv("GO2RTC_CONFIG_PATH", "/config/go2rtc.yaml")
 GO2RTC_CONTAINER = os.getenv("GO2RTC_CONTAINER", "go2rtc")
 DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "unix:///var/run/docker.sock")
@@ -19,12 +19,12 @@ log:
   level: info
 
 api:
-  listen: ":1984"
+  listen: ":1476"
   origins:
     - "*"
 
 rtsp:
-  listen: ":8554"
+  listen: ":554"
 
 webrtc:
   listen: ":8555"
@@ -32,12 +32,31 @@ webrtc:
 streams:
 """
 
+_DVRIP_RE = re.compile(r"^dvrip://([^:]+):([^@]+)@([^:]+):(\d+)/(\d+)$")
+
+
+def _to_go2rtc_url(stream_url: str) -> str:
+    """Convert a DB stream_url to go2rtc-compatible DVRIP URL.
+
+    DB format:   dvrip://user:pass@host:port/channel
+    go2rtc format: dvrip://user:pass@host:port?channel=N&subtype=0
+
+    For non-DVRIP URLs (e.g. rtsp://), return as-is.
+    """
+    m = _DVRIP_RE.match(stream_url)
+    if not m:
+        return stream_url
+    user, password, host, port, channel = m.groups()
+    return f"dvrip://{user}:{password}@{host}:{port}?channel={channel}&subtype=0"
+
 
 def generate_yaml(cameras: list[dict]) -> str:
     """Generate go2rtc.yaml content from a list of camera dicts.
 
     Each camera dict must have 'id' (UUID str) and 'stream_url'.
-    Uses dict format: `  cam_id: { source: "dvrip://..." }` per go2rtc convention.
+    Uses list format per go2rtc convention:
+        cam_id:
+          - dvrip://user:pass@host:port?channel=N&subtype=0
     """
     lines = [_YAML_HEADER.rstrip()]
     for cam in cameras:
@@ -45,8 +64,9 @@ def generate_yaml(cameras: list[dict]) -> str:
         url = cam.get("stream_url", "")
         if not url:
             continue
+        go2rtc_url = _to_go2rtc_url(url)
         lines.append(f'  {cam_id}:')
-        lines.append(f'    source: "{url}"')
+        lines.append(f'    - "{go2rtc_url}"')
     if len(cameras) == 0:
         lines.append("  {}")
     return "\n".join(lines) + "\n"
@@ -77,10 +97,8 @@ async def restart_go2rtc() -> bool:
     """
     try:
         socket_path = DOCKER_SOCKET.replace("unix://", "")
-        # Use httpx with unix socket transport
         transport = httpx.AsyncHTTPTransport(uds=socket_path)
         async with httpx.AsyncClient(transport=transport, timeout=10.0) as client:
-            # Restart the go2rtc container (SIGTERM then SIGKILL after 10s)
             resp = await client.post(
                 f"http://localhost/containers/{GO2RTC_CONTAINER}/restart?t=5",
             )
@@ -111,7 +129,6 @@ async def sync_cameras(cameras: list[dict]) -> str:
     """
     old_hash = write_config(cameras)
 
-    # Restart go2rtc to apply new config
     restarted = await restart_go2rtc()
     if restarted:
         LOGGER.info("go2rtc sync complete: %d cameras, restarting", len(cameras))

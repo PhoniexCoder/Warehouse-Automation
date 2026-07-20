@@ -66,7 +66,7 @@ import time
 from urllib.parse import urlparse
 
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
-GO2RTC_RTSP_URL = os.getenv("GO2RTC_RTSP_URL", "http://host.docker.internal:8554")
+GO2RTC_RTSP_URL = os.getenv("GO2RTC_RTSP_URL", "http://host.docker.internal:554")
 # Extract host:port from GO2RTC_RTSP_URL for RTSP stream construction
 _GO2RTC_HOST = GO2RTC_RTSP_URL.replace("http://", "").replace("https://", "").rstrip("/")
 

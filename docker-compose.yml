@@ -36,7 +36,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@warehouse.com}
-      GO2RTC_API_URL: ${GO2RTC_API_URL:-http://localhost:1984}
+      GO2RTC_API_URL: ${GO2RTC_API_URL:-http://localhost:1476}
       GO2RTC_CONFIG_PATH: ${GO2RTC_CONFIG_PATH:-/config/go2rtc.yaml}
       GO2RTC_CONTAINER: ${GO2RTC_CONTAINER:-go2rtc}
       DOCKER_SOCKET: ${DOCKER_SOCKET:-/var/run/docker.sock}
@@ -70,7 +70,7 @@ services:
       MODEL_PATH: "/app/models/box_model.pt"
       HOST: "0.0.0.0"
       PORT: "8000"
-      GO2RTC_RTSP_URL: ${GO2RTC_RTSP_URL:-http://host.docker.internal:8554}
+      GO2RTC_RTSP_URL: ${GO2RTC_RTSP_URL:-http://host.docker.internal:554}
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
       OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp"
