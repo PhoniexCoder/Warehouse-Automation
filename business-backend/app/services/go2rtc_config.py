@@ -3,7 +3,6 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from urllib.parse import urlparse, quote, unquote
 
 import httpx
 
@@ -29,15 +28,11 @@ streams:
 """
 
 
-def _build_stream_line(stream_url: str) -> str:
-    """Return the stream URL formatted for go2rtc YAML."""
-    return f'    - "{stream_url}"'
-
-
 def generate_yaml(cameras: list[dict]) -> str:
     """Generate go2rtc.yaml content from a list of camera dicts.
 
     Each camera dict must have 'id' (UUID str) and 'stream_url'.
+    Uses simple string format: `  cam_id: "dvrip://..."` (single source per camera).
     """
     lines = [_YAML_HEADER.rstrip()]
     for cam in cameras:
@@ -45,8 +40,7 @@ def generate_yaml(cameras: list[dict]) -> str:
         url = cam.get("stream_url", "")
         if not url:
             continue
-        lines.append(f"  {cam_id}:")
-        lines.append(_build_stream_line(url))
+        lines.append(f'  {cam_id}: "{url}"')
     if len(cameras) == 0:
         lines.append("  {}")
     return "\n".join(lines) + "\n"

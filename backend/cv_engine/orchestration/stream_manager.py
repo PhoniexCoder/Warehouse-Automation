@@ -1,11 +1,11 @@
-"""Per-camera DVRIP connection lifecycle manager.
+"""Per-camera stream lifecycle manager.
 
-Manages DVRIP connections for each camera, decodes H.264/H.265 to JPEG
-via FFmpeg subprocess, distributes JPEG frames to WebSocket subscribers
-and FrameStore (for MJPEG fallback).
+Primary streaming path: go2rtc bridge (DVRIP → go2rtc RTSP → cv-engine → WebSocket).
+go2rtc handles DVRIP protocol natively. cv-engine reads RTSP from go2rtc and
+distributes JPEG frames to WebSocket subscribers and FrameStore.
 
-Includes staggered NVR connection scheduler to prevent exceeding the
-NVR's max concurrent session limit and avoid thundering herd issues.
+Legacy: CameraStream (direct DVRIP binary) is retained for potential future use
+but is no longer the default path. All cameras now route through RtspCameraStream.
 """
 
 import logging
@@ -128,11 +128,12 @@ _nvr_scheduler = NvrConnectionScheduler()
 class CameraStream:
     """Manages a single camera's DVRIP connection and frame distribution.
 
-    Lifecycle:
-    1. Connect to NVR via DVRIPClient (JSON login, OPMonitor Claim+Start)
-    2. Read packets: I-frames, P-frames, JPEG, audio, info
-    3. Decode H.264/H.265 → JPEG via FFmpeg subprocess
-    4. Distribute JPEG to WebSocket subscribers + FrameStore
+    DEPRECATED: Use RtspCameraStream with go2rtc bridge instead.
+    go2rtc handles DVRIP protocol natively and re-publishes as RTSP.
+    cv-engine reads RTSP from go2rtc and distributes JPEG frames.
+
+    This class is retained for potential direct DVRIP connections
+    (e.g., when go2rtc is unavailable or for testing).
     """
 
     def __init__(
@@ -463,8 +464,11 @@ class CameraStream:
 class RtspCameraStream:
     """Manages a single camera's RTSP connection and frame distribution.
 
-    Uses FFmpeg to read RTSP directly, outputs JPEG frames to
-    WebSocket subscribers and FrameStore.
+    Primary streaming path via go2rtc bridge:
+    1. go2rtc connects to NVR via DVRIP (or native RTSP)
+    2. go2rtc re-publishes as RTSP on localhost:8554
+    3. This class reads RTSP from go2rtc via FFmpeg
+    4. Outputs JPEG frames to WebSocket subscribers and FrameStore
     """
 
     def __init__(
@@ -616,7 +620,12 @@ class RtspCameraStream:
 
 
 class StreamManager:
-    """Manages CameraStream and RtspCameraStream instances for all active cameras."""
+    """Manages camera stream instances for all active cameras.
+
+    Primary path: RtspCameraStream (go2rtc bridge for DVRIP cameras,
+    direct RTSP for native RTSP cameras).
+    Legacy: CameraStream (direct DVRIP binary) retained for fallback.
+    """
 
     def __init__(self, frame_store: FrameStore) -> None:
         self._frame_store = frame_store
