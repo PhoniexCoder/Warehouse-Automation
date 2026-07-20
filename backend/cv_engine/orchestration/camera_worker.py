@@ -357,7 +357,7 @@ class CameraWorker:
                     "tracking_id": tid,
                     "timestamp": ts,
                     "type": _EVENT_TYPE_DETECTION,
-                    "qr_data": f"CRAX-BOX-{tid}",
+                    "qr_data": f"VSTK-BOX-{tid}",
                     "box": {
                         "x": x1,
                         "y": y1,

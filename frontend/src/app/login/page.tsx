@@ -40,7 +40,7 @@ function LoginForm() {
             {/* Blue spherical gradient logo */}
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-blue-600 via-blue-500 to-cyan-400 shadow-[0_0_15px_rgba(59,130,246,0.4)]" />
             <span className="text-lg font-bold text-white tracking-tight">
-              Warehouse OS<span className="text-blue-500">.</span>
+              Vistock<span className="text-blue-500">.</span>
             </span>
           </div>
         </div>
@@ -133,7 +133,7 @@ function LoginForm() {
         {/* Footer */}
         <div className="w-full">
           <p className="text-xs text-slate-500">
-            © 2026 Warehouse OS. Authorized operations only.
+            © 2026 Vistock. Authorized operations only.
           </p>
         </div>
 

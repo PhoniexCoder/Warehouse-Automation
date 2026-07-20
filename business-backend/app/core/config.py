@@ -12,7 +12,7 @@ def _require_env(name: str) -> str:
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "Warehouse Business Backend"
+    app_name: str = "Vistock Business Backend"
     app_version: str = "1.0.0"
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
 

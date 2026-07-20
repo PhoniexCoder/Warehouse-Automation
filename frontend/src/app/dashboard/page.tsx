@@ -152,7 +152,7 @@ export default function DashboardPage() {
   // Get details from the most recent real scan
   const latestLog = countLogs[0]
   const latestFlavor = latestLog 
-    ? inventory.find((item) => latestLog.box_id.includes(item.product_code))?.product_name || "Crax Masala Rings"
+    ? inventory.find((item) => latestLog.box_id.includes(item.product_code))?.product_name || "Vistock Flavor Pack"
     : "No scans recorded"
 
   // Processed total for latestLog conveyor line
@@ -175,8 +175,8 @@ export default function DashboardPage() {
       {/* Top Banner & Header Title */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="text-left">
-          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">CRAX Operations</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Real-time Carton Tracking & Counting for CRAX Snacks</p>
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Vistock Operations</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Real-time Carton Tracking & Counting for Vistock</p>
         </div>
       </div>
 
@@ -259,7 +259,7 @@ export default function DashboardPage() {
             </svg>
           </div>
           <div className="text-left">
-            <p className="text-xs font-bold text-slate-800 leading-tight">CRAX Plant Dispatch</p>
+            <p className="text-xs font-bold text-slate-800 leading-tight">Vistock Plant Dispatch</p>
             <p className="text-[10px] font-bold text-slate-400 leading-none mt-0.5 uppercase tracking-wide">
               {format(new Date(), "EEEE - MMMM d, yyyy")}
             </p>
@@ -419,7 +419,7 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 <div className="bg-[#f8fafc] border border-slate-200/50 p-3.5 rounded-xl text-left">
                   <p className="text-[10px] font-bold text-slate-400 font-mono uppercase tracking-wider leading-none">Last Carton ID</p>
-                  <p className="text-sm font-bold text-slate-900 font-mono mt-1">#CRAX-{latestLog.box_id.slice(0, 8).toUpperCase()}</p>
+                  <p className="text-sm font-bold text-slate-900 font-mono mt-1">#VSTK-{latestLog.box_id.slice(0, 8).toUpperCase()}</p>
                 </div>
 
                 <div className="space-y-3.5 text-xs font-semibold px-1 text-left">
@@ -506,7 +506,7 @@ export default function DashboardPage() {
               <div className="min-w-0">
                 <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Terminal Site</p>
                 <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
-                  {latestLog ? `CRAX Plant - ${getCameraName(latestLog.camera_id)}` : "CRAX Dispatch Center"}
+                  {latestLog ? `Vistock Plant - ${getCameraName(latestLog.camera_id)}` : "Vistock Dispatch Center"}
                 </p>
               </div>
             </div>
@@ -558,13 +558,13 @@ export default function DashboardPage() {
                   <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">
                     {log.box_id.startsWith("ALERT-") 
                       ? log.box_id 
-                      : `#CRAX-${log.box_id.slice(0, 8).toUpperCase()}`
+                      : `#VSTK-${log.box_id.slice(0, 8).toUpperCase()}`
                     }
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {log.box_id.startsWith("ALERT-") 
                       ? "Inspection Flag" 
-                      : inventory.find((item) => log.box_id.includes(item.product_code))?.product_name || "Crax Masala Rings"
+                      : inventory.find((item) => log.box_id.includes(item.product_code))?.product_name || "Vistock Flavor Pack"
                     }
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">24 Packs / Case</td>

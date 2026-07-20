@@ -108,12 +108,11 @@ function DashboardShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-[0_2px_15px_rgba(0,0,0,0.015)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           
-          {/* Left: Brand Logo */}
+          {/* Vistock Brand Orange-Yellow-Red gradient logo */}
           <div className="flex items-center gap-2.5 shrink-0">
-            {/* CRAX Brand Orange-Yellow-Red gradient logo */}
             <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 via-orange-500 to-red-600 shadow-[0_0_12px_rgba(249,115,22,0.35)]" />
             <span className="text-base font-black text-slate-900 tracking-tight">
-              CRAX <span className="text-orange-500">Warehouse</span>
+              Vistock <span className="text-orange-500">Warehouse</span>
             </span>
           </div>
 

@@ -118,7 +118,7 @@ export default function InventoryPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="text-left">
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">CRAX Product Batches</h2>
+          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Vistock Product Batches</h2>
           <p className="text-sm text-slate-500 mt-1">Track packaging flavors and conveyor scan logs</p>
         </div>
         <Button onClick={openCreate} className="rounded-full shadow-md shadow-blue-500/10">
@@ -235,7 +235,7 @@ export default function InventoryPage() {
                           {format(new Date(log.timestamp), "MMM d, yyyy HH:mm:ss")}
                         </td>
                         <td className="px-4 py-3">
-                          <code className="text-xs font-mono text-slate-900 font-bold">#CRAX-{log.box_id.slice(0, 8).toUpperCase()}</code>
+                          <code className="text-xs font-mono text-slate-900 font-bold">#VSTK-{log.box_id.slice(0, 8).toUpperCase()}</code>
                         </td>
                         <td className="px-4 py-3 text-slate-500">{log.camera_id}</td>
                         <td className="px-4 py-3">
@@ -264,7 +264,7 @@ export default function InventoryPage() {
               value={productCode}
               onChange={(e) => setProductCode(e.target.value)}
               className="input-field font-mono font-bold"
-              placeholder="e.g. CRAX-MASALA-24G"
+              placeholder="e.g. VISTOCK-MASALA-24G"
               required
               disabled={!!editing}
               autoFocus
