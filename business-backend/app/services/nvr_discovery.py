@@ -198,18 +198,16 @@ class NvrDiscoveryService:
 
         # Step 2: Probe each channel for active video
         for ch in range(channel_count):
-            is_active = cls._dvrip_probe_channel(ip, 34567, username, password, ch)
             stream_url = f"dvrip://{username}:{password}@{ip}:34567/{ch}"
             channels.append({
                 "channel_id": ch,
-                "display_name": f"Channel {ch}" + (" (active)" if is_active else ""),
+                "display_name": f"Channel {ch}",
                 "stream_url": stream_url,
                 "protocol": "dvrip",
-                "active": is_active,
+                "active": True,
             })
 
-        active_count = sum(1 for c in channels if c.get("active"))
-        LOGGER.info("DVRIP %s: %d/%d channels active", ip, active_count, channel_count)
+        LOGGER.info("DVRIP %s: %d channels discovered", ip, channel_count)
         return channels
 
     @classmethod
