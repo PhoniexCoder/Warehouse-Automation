@@ -16,7 +16,10 @@ import { LiveCameraPreview } from "@/components/camera/LiveCameraPreview"
 const getMjpegUrl = (id: string): string => {
   if (typeof window !== "undefined") {
     const hostname = window.location.hostname
-    return `http://${hostname}:8000/api/v1/stream/${id}`
+    const isHttps = window.location.protocol === "https:"
+    const protocol = isHttps ? "https:" : "http:"
+    const port = isHttps ? "" : ":8000"
+    return `${protocol}//${hostname}${port}/api/v1/stream/${id}`
   }
   return `http://localhost:8000/api/v1/stream/${id}`
 }

@@ -73,15 +73,20 @@ export class CameraStream {
   private getWsUrl(): string {
     if (typeof window === "undefined") return ""
     const hostname = window.location.hostname
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    const isHttps = window.location.protocol === "https:"
+    const protocol = isHttps ? "wss:" : "ws:"
+    const port = isHttps ? "" : ":8000"
     const params = this.apiKey ? `?key=${encodeURIComponent(this.apiKey)}` : ""
-    return `${protocol}//${hostname}:8000/api/v1/stream/ws/${this.cameraId}${params}`
+    return `${protocol}//${hostname}${port}/api/v1/stream/ws/${this.cameraId}${params}`
   }
 
   private getMjpegUrl(): string {
     if (typeof window === "undefined") return ""
     const hostname = window.location.hostname
-    return `http://${hostname}:8000/api/v1/stream/${this.cameraId}`
+    const isHttps = window.location.protocol === "https:"
+    const protocol = isHttps ? "https:" : "http:"
+    const port = isHttps ? "" : ":8000"
+    return `${protocol}//${hostname}${port}/api/v1/stream/${this.cameraId}`
   }
 
   private connectWebSocket(): void {
