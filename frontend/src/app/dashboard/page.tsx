@@ -562,8 +562,8 @@ export default function DashboardPage() {
             <thead>
               <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-bold uppercase tracking-wider bg-slate-50/50">
                 <th className="px-4 py-3">Carton ID</th>
-                <th className="px-4 py-3">Product / Flavor</th>
-                <th className="px-4 py-3">Case Count</th>
+                <th className="px-4 py-3">Detection Class</th>
+                <th className="px-4 py-3">Package Type</th>
                 <th className="px-4 py-3">Camera</th>
                 <th className="px-4 py-3">Scan Timestamp</th>
                 <th className="px-4 py-3">Scan Type</th>
@@ -584,11 +584,11 @@ export default function DashboardPage() {
                     <td className="px-4 py-3 text-xs">
                       {log.box_id.startsWith("ALERT-") 
                         ? "Inspection Flag" 
-                        : matchedItem?.product_name || "Vistock Flavor Pack"
+                        : matchedItem?.product_name || "Carton Box"
                       }
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">
-                      {matchedItem ? `${matchedItem.quantity} cases` : "24 Packs / Case"}
+                      {matchedItem ? `${matchedItem.quantity} cases` : "Standard Box"}
                     </td>
                     <td className="px-4 py-3 text-xs">{getCameraName(log.camera_id)}</td>
                     <td className="px-4 py-3 text-xs font-mono">
