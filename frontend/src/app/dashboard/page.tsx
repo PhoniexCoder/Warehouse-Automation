@@ -300,11 +300,11 @@ export default function DashboardPage() {
 
       </div>
 
-      {/* Middle Grid Section: Analytic View, History, Map */}
+      {/* Middle Grid Section: Analytic View + History */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Chart Card (Analytic View) */}
-        <div className="card p-6 bg-white lg:col-span-6 flex flex-col justify-between">
+        <div className="card p-6 bg-white lg:col-span-8 flex flex-col justify-between">
           
           <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
             <div className="text-left">
@@ -408,7 +408,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Middle Details Card (Inventory History) */}
-        <div className="card p-6 bg-white lg:col-span-3 flex flex-col justify-between">
+        <div className="card p-6 bg-white lg:col-span-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
               <h3 className="text-sm font-bold text-slate-800 tracking-tight">Carton Tracking Details</h3>
@@ -469,45 +469,6 @@ export default function DashboardPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Right Map Card */}
-        <div className="card p-6 bg-white lg:col-span-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-            <h3 className="text-sm font-bold text-slate-800 tracking-tight">Location Map</h3>
-          </div>
-
-          {/* SVG Map Container */}
-          <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-50 border border-slate-200/40 select-none flex items-center justify-center">
-            {/* Curved Path Map Backdrop */}
-            <svg viewBox="0 0 100 100" className="w-full h-full text-slate-200 stroke-current" fill="none">
-              {/* Fake road networks */}
-              <path d="M10 20 H90 M10 50 H90 M10 80 H90 M30 10 V90 M60 10 V90 M80 10 V90" strokeWidth="0.8" strokeDasharray="2 3" />
-              {/* Route Line */}
-              <path d="M20 70 C30 50 40 60 65 30 T85 50" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" />
-              {/* Start node */}
-              <circle cx="20" cy="70" r="3.5" fill="#10b981" />
-              <circle cx="20" cy="70" r="6" fill="#10b981" className="opacity-25 animate-ping" />
-              {/* End node */}
-              <circle cx="85" cy="50" r="3.5" fill="#f97316" />
-            </svg>
-
-            {/* Float location descriptor */}
-            <div className="absolute bottom-3 left-3 right-3 bg-white p-2 rounded-xl border border-slate-200/50 flex items-center gap-2.5 shadow-sm text-left">
-              <div className="w-7 h-7 bg-orange-50 text-orange-650 rounded-lg flex items-center justify-center shrink-0 border border-orange-100">
-                <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                </svg>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Terminal Site</p>
-                <p className="text-xs font-bold text-slate-800 truncate mt-0.5">
-                  {latestLog ? `Vistock Plant - ${getCameraName(latestLog.camera_id)}` : "Vistock Dispatch Center"}
-                </p>
               </div>
             </div>
           </div>
