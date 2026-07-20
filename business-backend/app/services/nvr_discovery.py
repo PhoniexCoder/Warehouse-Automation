@@ -267,11 +267,28 @@ class NvrDiscoveryService:
             resp = json.loads(resp_json)
             LOGGER.info("DVRIP login response from %s:%d: Ret=%s, SessionID=%s",
                         ip, port, resp.get("Ret"), resp.get("SessionID"))
+            LOGGER.info("DVRIP response keys: %s", list(resp.keys()))
+            LOGGER.info("DVRIP full response: %s", json.dumps(resp, indent=2)[:2000])
+
+            ret_code = resp.get("Ret", -1)
+            if ret_code not in (100, 515):
+                LOGGER.warning("DVRIP login failed: Ret=%s (expected 100 or 515)", ret_code)
+                return None
 
             net_common = resp.get("NetWork.NetCommon", {})
             channel_count = int(net_common.get("ChannelNum", 0))
+
+            if channel_count == 0:
+                for key, val in resp.items():
+                    if isinstance(val, dict):
+                        for k2, v2 in val.items():
+                            if "channel" in k2.lower():
+                                LOGGER.info("DVRIP found channel key: %s.%s = %s", key, k2, v2)
+                    elif "channel" in key.lower():
+                        LOGGER.info("DVRIP found channel key: %s = %s", key, val)
+
             LOGGER.info("DVRIP channel count from %s:%d = %d", ip, port, channel_count)
-            return channel_count if channel_count > 0 else None
+            return channel_count if channel_count > 0 else 16
 
         except Exception as e:
             LOGGER.warning("DVRIP login to %s:%d failed: %s", ip, port, e, exc_info=True)
