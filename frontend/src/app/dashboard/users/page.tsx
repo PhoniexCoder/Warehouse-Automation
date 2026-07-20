@@ -215,8 +215,9 @@ export default function UsersPage() {
               className="input-field"
               required
             >
-              <option value="ADMIN">ADMIN</option>
-              <option value="MANAGER">MANAGER</option>
+              {user?.role === "SUPER_ADMIN" && <option value="SUPER_ADMIN">SUPER_ADMIN</option>}
+              {(user?.role === "SUPER_ADMIN" || user?.role === "ADMIN") && <option value="ADMIN">ADMIN</option>}
+              {(user?.role === "SUPER_ADMIN" || user?.role === "ADMIN" || user?.role === "MANAGER") && <option value="MANAGER">MANAGER</option>}
               <option value="OPERATOR">OPERATOR</option>
             </select>
           </div>
