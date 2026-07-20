@@ -65,13 +65,14 @@ export default function AlertsPage() {
     setAlerts([])
   }
 
-  const fetch = useCallback(async () => {
+  const loadAlerts = useCallback(async () => {
     try {
       const params: Record<string, string> = {}
       if (typeFilter !== "all") params.alert_type = typeFilter
       if (severityFilter !== "all") params.severity = severityFilter
       const data = await api.getAlerts(params)
-      setAlerts(data)
+      const dismissed = getDismissed()
+      setAlerts(data.filter((a) => !dismissed.has(a.id)))
     } catch {
       // silent
     } finally {
@@ -80,10 +81,10 @@ export default function AlertsPage() {
   }, [typeFilter, severityFilter])
 
   useEffect(() => {
-    fetch()
-    const interval = setInterval(fetch, POLL_INTERVAL)
+    loadAlerts()
+    const interval = setInterval(loadAlerts, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [fetch])
+  }, [loadAlerts])
 
   const severityColor = (s: string) => {
     if (s === "critical") return "danger"
