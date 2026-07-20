@@ -218,13 +218,17 @@ class NvrDiscoveryService:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(timeout)
+            LOGGER.info("DVRIP connecting to %s:%d (timeout=%.1fs)", ip, port, timeout)
             sock.connect((ip, port))
-        except (socket.error, OSError):
+            LOGGER.info("DVRIP TCP connected to %s:%d", ip, port)
+        except (socket.error, OSError) as e:
+            LOGGER.warning("DVRIP TCP connect to %s:%d FAILED: %s", ip, port, e)
             return None
 
         try:
-            # Build login payload (same format as go2rtc)
             hashed = cls._sofia_hash(password)
+            LOGGER.info("DVRIP sofia_hash(%s) = %s", password, hashed)
+
             login_data = json.dumps({
                 "EncryptType": "MD5",
                 "LoginType": "DVRIP-Web",
@@ -232,24 +236,26 @@ class NvrDiscoveryService:
                 "UserName": username,
             }, separators=(",", ":")) + "\n\x00"
 
-            # Send login (cmd=1000)
             payload = login_data.encode("utf-8")
             header = bytearray(20)
             header[0] = 0xFF
             struct.pack_into("<I", header, 16, len(payload))
-            struct.pack_into("<H", header, 14, 1000)  # cmd=1000
+            struct.pack_into("<H", header, 14, 1000)
             sock.sendall(bytes(header) + payload)
+            LOGGER.info("DVRIP login sent to %s:%d (user=%s)", ip, port, username)
 
-            # Read response header
             resp_header = sock.recv(20)
             if len(resp_header) < 20:
+                LOGGER.warning("DVRIP response from %s:%d truncated (%d bytes)", ip, port, len(resp_header))
                 return None
 
             resp_size = struct.unpack_from("<I", resp_header, 16)[0]
+            resp_cmd = struct.unpack_from("<H", resp_header, 14)[0]
+            LOGGER.info("DVRIP response header from %s:%d: cmd=%d, size=%d", ip, port, resp_cmd, resp_size)
             if resp_size > 1048576:
+                LOGGER.warning("DVRIP response too large: %d bytes", resp_size)
                 return None
 
-            # Read response payload
             resp_data = b""
             while len(resp_data) < resp_size:
                 chunk = sock.recv(min(resp_size - len(resp_data), 65536))
@@ -257,16 +263,18 @@ class NvrDiscoveryService:
                     break
                 resp_data += chunk
 
-            # Parse JSON (strip trailing \n\x00)
             resp_json = resp_data.decode("utf-8", errors="ignore").rstrip("\x00\n")
             resp = json.loads(resp_json)
+            LOGGER.info("DVRIP login response from %s:%d: Ret=%s, SessionID=%s",
+                        ip, port, resp.get("Ret"), resp.get("SessionID"))
 
             net_common = resp.get("NetWork.NetCommon", {})
             channel_count = int(net_common.get("ChannelNum", 0))
+            LOGGER.info("DVRIP channel count from %s:%d = %d", ip, port, channel_count)
             return channel_count if channel_count > 0 else None
 
         except Exception as e:
-            LOGGER.debug("DVRIP login to %s failed: %s", ip, e)
+            LOGGER.warning("DVRIP login to %s:%d failed: %s", ip, port, e, exc_info=True)
             return None
         finally:
             try:
