@@ -435,13 +435,13 @@ class NvrDiscoveryService:
     def _sofia_hash(password: str) -> str:
         """Compute DVRIP sofia_hash (MD5-based password hash)."""
         import hashlib
-        chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        chars = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         md5_digest = hashlib.md5(password.encode("utf-8")).digest()
-        sofia = bytearray(8)
-        for i in range(0, 8):
+        result = bytearray(8)
+        for i in range(8):
             j = md5_digest[i * 2] + md5_digest[i * 2 + 1]
-            sofia[i] = chars[j % 62]
-        return sofia.decode("ascii")
+            result[i] = chars[j % 62]
+        return result.decode("ascii")
 
     @classmethod
     async def _scan_rtsp_channels(cls, ip: str, username: str, password: str) -> List[Dict[str, Any]]:
