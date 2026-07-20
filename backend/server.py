@@ -253,26 +253,23 @@ def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> di
 async def ws_stream(websocket: WebSocket, camera_id: str):
     """WebSocket endpoint for live JPEG frame streaming.
 
-    Sends raw JPEG binary frames at ~5 FPS.
-    Waits up to 15s for the camera stream to become available
-    (allows time for DVRIP connection on startup).
+    Streams annotated JPEG frames (with YOLO bounding boxes & ROI overlay) from FrameStore
+    when available, falling back to raw RTSP frames.
     """
     api_key = websocket.query_params.get("key", "")
     if _CV_INTERNAL_KEY and api_key and api_key != _CV_INTERNAL_KEY:
         await websocket.close(code=4001, reason="Invalid API key")
         return
 
-    # Wait for the stream to become available (DVRIP may still be connecting)
-    stream = None
-    for _ in range(30):  # 30 * 0.5s = 15s max wait
-        stream = stream_manager.get_stream(camera_id)
-        if stream:
-            break
-        await asyncio.sleep(0.5)
-
-    if not stream:
-        await websocket.close(code=4004, reason=f"Camera '{camera_id}' not found")
-        return
+    # Check if stream or worker exists
+    has_stream = stream_manager.get_stream(camera_id) is not None
+    has_worker = camera_id in camera_manager._configs
+    if not has_stream and not has_worker:
+        for _ in range(30):
+            await asyncio.sleep(0.5)
+            if stream_manager.get_stream(camera_id) or camera_id in camera_manager._configs:
+                has_stream = True
+                break
 
     await websocket.accept()
     LOGGER.info("[ws:%s] Client connected", camera_id)
@@ -282,21 +279,34 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
     frame_queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 
     def _on_frame(jpeg_bytes: bytes):
-        """Called from CameraStream thread — use thread-safe put."""
         try:
             loop.call_soon_threadsafe(frame_queue.put_nowait, jpeg_bytes)
         except RuntimeError:
-            pass  # Event loop closed
+            pass
 
-    stream.subscribe_websocket(sub_id, _on_frame)
+    stream = stream_manager.get_stream(camera_id)
+    if stream:
+        stream.subscribe_websocket(sub_id, _on_frame)
+
+    last_mtime = 0.0
 
     try:
         while True:
+            # Prioritize annotated frames from FrameStore (containing YOLO bounding boxes & ROI polygon overlay)
+            mtime = frame_store.latest_mtime(camera_id)
+            if mtime > last_mtime:
+                annotated_jpeg = frame_store.latest_bytes(camera_id)
+                if annotated_jpeg:
+                    last_mtime = mtime
+                    await websocket.send_bytes(annotated_jpeg)
+                    await asyncio.sleep(0.04)
+                    continue
+
+            # Fallback to raw stream from RTSP if no new annotated frame
             try:
-                jpeg = await asyncio.wait_for(frame_queue.get(), timeout=5.0)
-                await websocket.send_bytes(jpeg)
+                raw_jpeg = await asyncio.wait_for(frame_queue.get(), timeout=1.0)
+                await websocket.send_bytes(raw_jpeg)
             except asyncio.TimeoutError:
-                # Send keepalive ping
                 try:
                     await websocket.send_text("")
                 except Exception:
@@ -306,7 +316,8 @@ async def ws_stream(websocket: WebSocket, camera_id: str):
     except Exception as e:
         LOGGER.debug("[ws:%s] Client error: %s", camera_id, e)
     finally:
-        stream.unsubscribe_websocket(sub_id)
+        if stream:
+            stream.unsubscribe_websocket(sub_id)
         LOGGER.info("[ws:%s] Client disconnected", camera_id)
 
 
