@@ -14,7 +14,6 @@ import clsx from "clsx"
 const navItems = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/cameras", label: "Cameras & NVRs" },
-  { href: "/dashboard/streams", label: "Streams" },
   { href: "/dashboard/warehouses", label: "Warehouses" },
   { href: "/dashboard/users", label: "Users" },
   { href: "/dashboard/alerts", label: "Alerts" },
