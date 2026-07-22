@@ -112,7 +112,7 @@ class CameraManager:
     ) -> None:
         import os
         if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000|rw_timeout;5000000|timeout;5000000"
         worker = CameraWorker(camera_id, config, event_queue, health, stop_event)
         worker.run()
 
@@ -160,12 +160,14 @@ class CameraManager:
     def _check_health_staleness(self, camera_id: str, now: float) -> None:
         try:
             entry = self._health.get(camera_id)
-            if entry and entry.get("status") == "running":
-                last_ts = entry.get("timestamp", 0)
-                if now - last_ts > _HEALTH_STALE_SECONDS:
-                    LOGGER.warning("[%s] Health stale (%.1fs), restarting",
-                                   camera_id, now - last_ts)
-                    self._restart_worker(camera_id)
+            if entry:
+                status = entry.get("status")
+                if status in ("running", "starting", "reconnecting", "error"):
+                    last_ts = entry.get("timestamp", 0)
+                    if now - last_ts > _HEALTH_STALE_SECONDS:
+                        LOGGER.warning("[%s] Health stale (%.1fs, status=%s), restarting",
+                                       camera_id, now - last_ts, status)
+                        self._restart_worker(camera_id)
         except Exception:
             pass
 

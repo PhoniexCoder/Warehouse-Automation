@@ -92,7 +92,7 @@ def create_video_capture(source: str) -> cv2.VideoCapture:
     rtsp_prefixes = ("rtsp://", "rtmp://", "http://", "https://")
     if source.lower().startswith(rtsp_prefixes):
         import os
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000|rw_timeout;5000000|timeout;5000000"
         return cv2.VideoCapture(source)
     path = Path(source)
     return cv2.VideoCapture(str(path))
