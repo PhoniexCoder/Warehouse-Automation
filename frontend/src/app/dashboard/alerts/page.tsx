@@ -13,7 +13,6 @@ const POLL_INTERVAL = 10000
 
 const alertTypeMeta: Record<string, { label: string; icon: string; color: string }> = {
   CAMERA_OFFLINE: { label: "Camera Offline", icon: "🔴", color: "danger" },
-  INVALID_QR: { label: "Invalid QR", icon: "⚠️", color: "warning" },
   DUPLICATE_COUNT: { label: "Duplicate Count", icon: "🔁", color: "info" },
   INVENTORY_MISMATCH: { label: "Inventory Mismatch", icon: "📦", color: "warning" },
 }
@@ -95,7 +94,6 @@ export default function AlertsPage() {
   const types = [
     { value: "all", label: "All Types" },
     { value: "CAMERA_OFFLINE", label: "Camera Offline" },
-    { value: "INVALID_QR", label: "Invalid QR" },
     { value: "DUPLICATE_COUNT", label: "Duplicate Count" },
     { value: "INVENTORY_MISMATCH", label: "Inventory Mismatch" },
   ]
