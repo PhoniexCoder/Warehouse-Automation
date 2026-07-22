@@ -2,14 +2,12 @@ import logging
 
 import numpy as np
 
-from cv_engine.services.qr_reader import QRReader
-
 LOGGER = logging.getLogger(__name__)
 
 
 class BoxProcessor:
-    def __init__(self, qr_reader: QRReader | None = None) -> None:
-        self._qr = qr_reader or QRReader()
+    def __init__(self) -> None:
+        pass
 
     def process_detections(
         self,
@@ -40,16 +38,6 @@ class BoxProcessor:
         x2 = max(x1 + 2, min(x2, frame_w))
         y2 = max(y1 + 2, min(y2, frame_h))
 
-        crop = frame[y1:y2, x1:x2]
-
-        qr_result = self._qr.detect_qr(crop)
-
-        det["qr_data"] = qr_result.get("qr_data")
-        det["has_qr"] = qr_result["success"]
-        det["qr_status"] = self._resolve_status(qr_result)
-
-    @staticmethod
-    def _resolve_status(qr_result: dict) -> str | None:
-        if qr_result["success"]:
-            return None
-        return "INVALID_QR"
+        det["qr_data"] = None
+        det["has_qr"] = False
+        det["qr_status"] = None

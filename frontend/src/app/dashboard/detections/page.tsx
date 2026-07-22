@@ -52,7 +52,7 @@ export default function DetectionsPage() {
                   <th className="text-left px-6 py-3 font-semibold text-slate-600">Timestamp</th>
                   <th className="text-left px-6 py-3 font-semibold text-slate-600">Tracking ID</th>
                   <th className="text-left px-6 py-3 font-semibold text-slate-600">Camera</th>
-                  <th className="text-left px-6 py-3 font-semibold text-slate-600">QR Data</th>
+                  <th className="text-left px-6 py-3 font-semibold text-slate-600">Carton Code</th>
                   <th className="text-left px-6 py-3 font-semibold text-slate-600">Counted</th>
                   <th className="text-left px-6 py-3 font-semibold text-slate-600">Bounding Box</th>
                 </tr>

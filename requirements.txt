@@ -5,8 +5,6 @@ numpy==1.26.4
 # YOLO Object Detection
 ultralytics==8.3.97
 
-# QR Code Decoding
-pyzbar==0.1.9
 
 # Object Tracking
 boxmot==10.0.84
