@@ -228,26 +228,25 @@ class FfmpegDecoder:
 
 
 class RtspDecoder:
-    """Persistent FFmpeg decoder for RTSP streams to JPEG.
+    """Reads RTSP streams via OpenCV VideoCapture and outputs JPEG frames.
 
-    Reads an RTSP URL directly via FFmpeg and outputs JPEG frames
-    to stdout. No stdin needed — FFmpeg pulls from RTSP.
+    Uses OpenCV's FFmpeg backend (cv2.CAP_FFMPEG) instead of a subprocess
+    pipe, avoiding pipe buffering and HEVC decode reliability issues.
     """
 
     def __init__(
         self,
         rtsp_url: str,
-        jpeg_quality: int = JPEG_QUALITY_FFMPEG,
+        jpeg_quality: int = JPEG_QUALITY_CV,
         RTSP_TRANSPORT: str = "tcp",
     ) -> None:
         self.rtsp_url = rtsp_url
         self.jpeg_quality = jpeg_quality
         self.RTSP_TRANSPORT = RTSP_TRANSPORT
 
-        self._proc: Optional[subprocess.Popen] = None
+        self._cap: Optional[cv2.VideoCapture] = None
         self._running = False
         self._reader_thread: Optional[threading.Thread] = None
-        self._stderr_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._frames_decoded = 0
         self._errors = 0
@@ -255,10 +254,11 @@ class RtspDecoder:
 
         self._frame_counter = 0
         self._frame_cond = threading.Condition(self._lock)
+        self._latest_jpeg: Optional[bytes] = None
 
     @property
     def is_running(self) -> bool:
-        return self._running and self._proc is not None and self._proc.poll() is None
+        return self._running and self._cap is not None and self._cap.isOpened()
 
     @property
     def stats(self) -> dict:
@@ -274,31 +274,16 @@ class RtspDecoder:
         }
 
     def start(self) -> bool:
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel", "error",
-            "-rtsp_transport", self.RTSP_TRANSPORT,
-            "-i", self.rtsp_url,
-            "-f", "image2pipe",
-            "-q:v", str(self.jpeg_quality),
-            "pipe:1",
-        ]
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            f"rtsp_transport;{self.RTSP_TRANSPORT}"
+        )
 
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-            )
-        except FileNotFoundError:
-            LOGGER.error("ffmpeg not found in PATH")
+        self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        if not self._cap.isOpened():
+            LOGGER.error("Failed to open RTSP stream: %s", self.rtsp_url)
             return False
-        except Exception as e:
-            LOGGER.error("Failed to start FFmpeg for RTSP: %s", e)
-            return False
+
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self._running = True
         self._start_time = time.time()
@@ -308,60 +293,41 @@ class RtspDecoder:
         )
         self._reader_thread.start()
 
-        self._stderr_thread = threading.Thread(
-            target=self._drain_stderr, daemon=True, name="rtsp-stderr"
-        )
-        self._stderr_thread.start()
-
         LOGGER.info("RTSP decoder started (%s)", self.rtsp_url)
         return True
 
-    def _drain_stderr(self) -> None:
-        try:
-            while self._running and self._proc and self._proc.stderr:
-                data = self._proc.stderr.read(4096)
-                if not data:
-                    break
-                if data.strip():
-                    LOGGER.warning("FFmpeg RTSP: %s", data.decode(errors="replace").strip())
-        except Exception:
-            pass
-
     def _read_loop(self) -> None:
-        buf = bytearray()
         while self._running:
             try:
-                chunk = self._proc.stdout.read1(4096)
-                if not chunk:
-                    break
-            except Exception:
-                break
-
-            buf.extend(chunk)
-
-            while True:
-                soi = buf.find(b"\xff\xd8")
-                if soi < 0:
-                    buf.clear()
+                ret, frame = self._cap.read()
+                if not ret:
+                    if self._running:
+                        LOGGER.warning("RTSP: failed to read frame")
+                        self._errors += 1
                     break
 
-                eoi = buf.find(b"\xff\xd9", soi + 2)
-                if eoi < 0:
-                    if soi > 0:
-                        del buf[:soi]
-                    break
+                ret, jpeg = cv2.imencode(
+                    ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
+                )
+                if not ret:
+                    continue
 
-                jpeg = bytes(buf[soi : eoi + 2])
-                del buf[: eoi + 2]
+                jpeg_bytes = jpeg.tobytes()
 
                 with self._lock:
                     self._frames_decoded += 1
                     self._frame_counter += 1
+                    self._latest_jpeg = jpeg_bytes
                     self._frame_cond.notify_all()
 
-                self._latest_jpeg = jpeg
+            except Exception as e:
+                LOGGER.warning("RTSP read error: %s", e)
+                self._errors += 1
+                break
 
         self._running = False
+        if self._cap:
+            self._cap.release()
         LOGGER.info("RTSP reader thread exiting")
 
     def read_frame(self, timeout: float = 2.0) -> Optional[bytes]:
@@ -386,16 +352,9 @@ class RtspDecoder:
 
     def stop(self) -> None:
         self._running = False
-        if self._proc:
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=3.0)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
-            self._proc = None
+        if self._cap:
+            self._cap.release()
+            self._cap = None
         LOGGER.info(
             "RTSP decoder stopped (decoded=%d, errors=%d)",
             self._frames_decoded,
