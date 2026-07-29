@@ -86,7 +86,7 @@ class FfmpegDecoder:
             "-analyzeduration", "0",
             "-f", input_codec,
             "-i", "pipe:0",
-            "-f", "mjpeg",
+            "-f", "image2pipe",
             "-q:v", str(self.jpeg_quality),
             "pipe:1",
         ]
@@ -280,7 +280,7 @@ class RtspDecoder:
             "-loglevel", "error",
             "-rtsp_transport", self.RTSP_TRANSPORT,
             "-i", self.rtsp_url,
-            "-f", "mjpeg",
+            "-f", "image2pipe",
             "-q:v", str(self.jpeg_quality),
             "pipe:1",
         ]
