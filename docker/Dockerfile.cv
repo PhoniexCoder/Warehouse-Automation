@@ -11,18 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     curl \
     wget \
-    xz-utils \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
     ln -sf /usr/bin/python3.10 /usr/bin/python3
-
-# Install ffmpeg with NVDEC/NVENC support (pinned to n7.1 branch for stability)
-RUN wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl.tar.xz \
-    -O /tmp/ffmpeg.tar.xz \
-    && tar -xf /tmp/ffmpeg.tar.xz -C /tmp \
-    && cp /tmp/ffmpeg-n7.1-latest-linux64-gpl/bin/ff* /usr/local/bin/ \
-    && rm -rf /tmp/ffmpeg*
 
 WORKDIR /app
 
