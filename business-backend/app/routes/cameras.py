@@ -352,6 +352,15 @@ async def list_active_cameras_internal(
     )
 
 
+@router.post("/cameras/internal/sync-go2rtc", summary="Trigger go2rtc config sync (Internal use)")
+async def sync_go2rtc_internal(
+    session: AsyncSession = Depends(get_session),
+    _key: None = Depends(_verify_internal_key),
+) -> ApiResponse:
+    await _sync_go2rtc(session)
+    return ApiResponse(success=True, data={"synced": True})
+
+
 GO2RTC_URL = os.environ.get("GO2RTC_URL", "")
 
 
