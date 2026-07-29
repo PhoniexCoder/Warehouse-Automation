@@ -102,18 +102,7 @@ def _parse_dvrip_url(url: str) -> dict | None:
 
 
 def _resolve_go2rtc_rtsp_url(cam_id: str, stream_url: str) -> str:
-    """Resolve RTSP URL from go2rtc, supporting both camera UUIDs and channel aliases (ch0, ch1...)."""
-    ch_num = None
-    dvrip_info = _parse_dvrip_url(stream_url)
-    if dvrip_info:
-        ch_num = dvrip_info["channel"]
-    else:
-        ch_match = re.search(r"(?:channel[=/]|/)(\d+)", stream_url)
-        if ch_match:
-            ch_num = int(ch_match.group(1))
-
-    ch_name = f"ch{ch_num}" if ch_num is not None else None
-
+    """Resolve RTSP URL from go2rtc, prioritizing camera UUID keys dynamically written by business backend."""
     try:
         host_ip = _GO2RTC_HOST.split(":")[0]
         req_url = f"http://{host_ip}:1476/api/streams"
@@ -122,13 +111,23 @@ def _resolve_go2rtc_rtsp_url(cam_id: str, stream_url: str) -> str:
             if isinstance(streams, dict):
                 if cam_id in streams:
                     return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
+
+                ch_num = None
+                dvrip_info = _parse_dvrip_url(stream_url)
+                if dvrip_info:
+                    ch_num = dvrip_info["channel"]
+                else:
+                    ch_match = re.search(r"(?:channel[=/]|/)(\d+)", stream_url)
+                    if ch_match:
+                        ch_num = int(ch_match.group(1))
+
+                ch_name = f"ch{ch_num}" if ch_num is not None else None
                 if ch_name and ch_name in streams:
                     return f"rtsp://{_GO2RTC_HOST}/{ch_name}"
     except Exception:
         pass
 
-    if ch_name:
-        return f"rtsp://{_GO2RTC_HOST}/{ch_name}"
+    # Primary default: Camera UUID (matches dynamic business-backend go2rtc config)
     return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
 
 
