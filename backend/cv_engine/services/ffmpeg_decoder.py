@@ -273,6 +273,7 @@ class RtspDecoder:
             "fps": round(fps, 1),
         }
 
+    def start(self) -> bool:
         cmd = [
             "ffmpeg",
             "-hide_banner",
