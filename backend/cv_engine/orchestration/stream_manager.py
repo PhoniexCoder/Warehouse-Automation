@@ -20,7 +20,7 @@ import numpy as np
 from cv_engine.orchestration.frame_store import FrameStore
 from cv_engine.services.dvrip_client import DVRIPClient, DVRIPConnectionError, DVRIPAuthError
 from cv_engine.services.dvrip_frames import TYPE_I_FRAME, TYPE_P_FRAME, TYPE_JPEG, TYPE_AUDIO, TYPE_INFO
-from cv_engine.services.ffmpeg_decoder import FfmpegDecoder, RtspDecoder, encode_jpeg
+from cv_engine.services.ffmpeg_decoder import FfmpegDecoder, RtspDecoder, encode_jpeg, JPEG_QUALITY_FFMPEG
 
 LOGGER = logging.getLogger(__name__)
 
@@ -553,7 +553,7 @@ class RtspCameraStream:
             try:
                 self._decoder = RtspDecoder(
                     rtsp_url=self.rtsp_url,
-                    jpeg_quality=JPEG_QUALITY_STREAM,
+                    jpeg_quality=JPEG_QUALITY_FFMPEG,
                 )
                 if not self._decoder.start():
                     LOGGER.error("[%s] Failed to start RTSP decoder", self.camera_id)
