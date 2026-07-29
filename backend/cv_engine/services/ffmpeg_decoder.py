@@ -86,6 +86,7 @@ class FfmpegDecoder:
             "-analyzeduration", "0",
             "-f", input_codec,
             "-i", "pipe:0",
+            "-c:v", "mjpeg",
             "-f", "image2pipe",
             "-q:v", str(self.jpeg_quality),
             "pipe:1",
@@ -280,6 +281,7 @@ class RtspDecoder:
             "-loglevel", "error",
             "-rtsp_transport", self.RTSP_TRANSPORT,
             "-i", self.rtsp_url,
+            "-c:v", "mjpeg",
             "-f", "image2pipe",
             "-q:v", str(self.jpeg_quality),
             "pipe:1",
@@ -331,7 +333,7 @@ class RtspDecoder:
         buf = bytearray()
         while self._running:
             try:
-                chunk = self._proc.stdout.read(4096)
+                chunk = self._proc.stdout.read1(4096)
                 if not chunk:
                     break
             except Exception:
