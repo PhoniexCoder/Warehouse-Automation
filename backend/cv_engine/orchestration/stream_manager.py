@@ -437,15 +437,14 @@ class CameraStream:
 
     def _distribute_jpeg(self, jpeg_bytes: bytes) -> None:
         """Send JPEG bytes to WebSocket subscribers and FrameStore."""
-        # Write to FrameStore for MJPEG fallback and detection workers
+        # Store directly in RAM FrameStore for detection workers and MJPEG fallback
         try:
             import numpy as np
             arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
             frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            if frame is not None:
-                self._frame_store.publish(
-                    self.camera_id, frame, quality=JPEG_QUALITY_STORE
-                )
+            self._frame_store.publish_bytes(
+                self.camera_id, jpeg_bytes, raw_frame=frame
+            )
         except Exception:
             pass
 

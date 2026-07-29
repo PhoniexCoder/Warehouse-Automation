@@ -222,7 +222,11 @@ class CameraWorker:
         if self._source_type == "simulated":
             return self._frame_source.read()
         elif self._source_type in ("dvrip", "file_store"):
-            # Read latest JPEG from FrameStore (populated by StreamManager or camera_worker itself)
+            # Fetch uncompressed raw frame directly from RAM FrameStore if available
+            raw = self._frame_store.latest_raw_frame(self.camera_id)
+            if raw is not None:
+                return True, raw, None
+            # Fall back to decoding latest JPEG bytes from RAM FrameStore
             data = self._frame_store.latest_bytes(self.camera_id)
             if data is None:
                 return False, None, None
