@@ -273,12 +273,13 @@ class RtspDecoder:
             "fps": round(fps, 1),
         }
 
-    def start(self) -> bool:
         cmd = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel", "error",
+            "-stimeout", "5000000",
             "-fflags", "nobuffer",
+            "-flags", "low_delay",
             "-rtsp_transport", self.RTSP_TRANSPORT,
             "-i", self.rtsp_url,
             "-f", "mjpeg",

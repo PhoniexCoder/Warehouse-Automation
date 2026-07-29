@@ -104,7 +104,8 @@ class CameraWorker:
                             self._report_health("dead", {"reason": "max_reconnects"})
                             break
 
-                        reconnect_delay = min(reconnect_delay * 2, _RECONNECT_MAX_DELAY)
+                        max_delay = 2.0 if self._source_type in ("dvrip", "file_store") else _RECONNECT_MAX_DELAY
+                        reconnect_delay = min(reconnect_delay * 2, max_delay)
                         LOGGER.warning("[%s] No frame (%d/%d), retry in %.1fs",
                                        self.camera_id, self._consecutive_errors,
                                        _RECONNECT_MAX_ATTEMPTS, reconnect_delay)
