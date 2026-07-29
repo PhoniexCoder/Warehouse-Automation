@@ -465,7 +465,7 @@ class RtspCameraStream:
 
     Primary streaming path via go2rtc bridge:
     1. go2rtc connects to NVR via DVRIP (or native RTSP)
-    2. go2rtc re-publishes as RTSP on localhost:8554
+    2. go2rtc re-publishes as RTSP on localhost:554
     3. This class reads RTSP from go2rtc via FFmpeg
     4. Outputs JPEG frames to WebSocket subscribers and FrameStore
     """
