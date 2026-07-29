@@ -278,7 +278,6 @@ class RtspDecoder:
             "ffmpeg",
             "-hide_banner",
             "-loglevel", "error",
-            "-stimeout", "5000000",
             "-fflags", "nobuffer",
             "-flags", "low_delay",
             "-rtsp_transport", self.RTSP_TRANSPORT,
