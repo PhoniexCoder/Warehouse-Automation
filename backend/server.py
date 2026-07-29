@@ -103,8 +103,16 @@ def _parse_dvrip_url(url: str) -> dict | None:
 
 def _resolve_go2rtc_rtsp_url(cam_id: str, stream_url: str) -> str:
     """Resolve RTSP URL from go2rtc, supporting both camera UUIDs and channel aliases (ch0, ch1...)."""
-    ch_match = re.search(r"channel[=/](\d+)", stream_url)
-    ch_name = f"ch{ch_match.group(1)}" if ch_match else None
+    ch_num = None
+    dvrip_info = _parse_dvrip_url(stream_url)
+    if dvrip_info:
+        ch_num = dvrip_info["channel"]
+    else:
+        ch_match = re.search(r"(?:channel[=/]|/)(\d+)", stream_url)
+        if ch_match:
+            ch_num = int(ch_match.group(1))
+
+    ch_name = f"ch{ch_num}" if ch_num is not None else None
 
     try:
         host_ip = _GO2RTC_HOST.split(":")[0]
