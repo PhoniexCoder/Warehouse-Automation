@@ -278,13 +278,10 @@ class RtspDecoder:
             "ffmpeg",
             "-hide_banner",
             "-loglevel", "error",
-            "-fflags", "nobuffer",
-            "-flags", "low_delay",
             "-rtsp_transport", self.RTSP_TRANSPORT,
             "-i", self.rtsp_url,
             "-f", "mjpeg",
             "-q:v", str(self.jpeg_quality),
-            "-r", "25",
             "pipe:1",
         ]
 
