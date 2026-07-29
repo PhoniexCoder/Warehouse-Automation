@@ -327,7 +327,7 @@ class RtspDecoder:
                 if not data:
                     break
                 if data.strip():
-                    LOGGER.debug("FFmpeg RTSP: %s", data.decode(errors="replace").strip())
+                    LOGGER.warning("FFmpeg RTSP: %s", data.decode(errors="replace").strip())
         except Exception:
             pass
 
