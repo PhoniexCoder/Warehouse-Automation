@@ -5,9 +5,12 @@ if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000|rw_timeout;5000000|timeout;5000000"
 
 import asyncio
+import json
 import logging
 import multiprocessing
+import re
 import sys
+import urllib.request
 
 multiprocessing.set_start_method("spawn", force=True)
 
@@ -98,6 +101,29 @@ def _parse_dvrip_url(url: str) -> dict | None:
     }
 
 
+def _resolve_go2rtc_rtsp_url(cam_id: str, stream_url: str) -> str:
+    """Resolve RTSP URL from go2rtc, supporting both camera UUIDs and channel aliases (ch0, ch1...)."""
+    ch_match = re.search(r"channel[=/](\d+)", stream_url)
+    ch_name = f"ch{ch_match.group(1)}" if ch_match else None
+
+    try:
+        host_ip = _GO2RTC_HOST.split(":")[0]
+        req_url = f"http://{host_ip}:1476/api/streams"
+        with urllib.request.urlopen(req_url, timeout=1.0) as resp:
+            streams = json.loads(resp.read().decode())
+            if isinstance(streams, dict):
+                if cam_id in streams:
+                    return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
+                if ch_name and ch_name in streams:
+                    return f"rtsp://{_GO2RTC_HOST}/{ch_name}"
+    except Exception:
+        pass
+
+    if ch_name:
+        return f"rtsp://{_GO2RTC_HOST}/{ch_name}"
+    return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
+
+
 def sync_cameras_loop():
     time.sleep(5)
     LOGGER.info("VMS Sync loop started (go2rtc bridge mode)")
@@ -146,8 +172,7 @@ def sync_cameras_loop():
                             # For DVRIP cameras: read RTSP from go2rtc (go2rtc handles DVRIP protocol)
                             # For native RTSP cameras: read directly from the RTSP URL
                             if stream_url.startswith("dvrip://"):
-                                go2rtc_rtsp = f"rtsp://{_GO2RTC_HOST}/{cam_id}"
-                                rtsp_source = go2rtc_rtsp
+                                rtsp_source = _resolve_go2rtc_rtsp_url(cam_id, stream_url)
                             else:
                                 rtsp_source = stream_url
 
