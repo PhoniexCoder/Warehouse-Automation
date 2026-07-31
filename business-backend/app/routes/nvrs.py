@@ -20,7 +20,6 @@ from app.schemas.nvr import (
 from app.models.nvr import Nvr
 from app.models.camera import Camera, CameraStatus
 from app.auth.permissions import require_manager_up, require_any
-from app.services.go2rtc_config import sync_cameras
 from app.services.camera_service import CameraService
 from app.services.nvr_discovery import NvrDiscoveryService
 
@@ -33,19 +32,6 @@ async def _count_cameras(session: AsyncSession, nvr_id: uuid.UUID) -> int:
     stmt = select(func.count()).select_from(Camera).where(Camera.nvr_id == nvr_id)
     result = await session.execute(stmt)
     return result.scalar() or 0
-
-
-async def _sync_after_change(session: AsyncSession) -> None:
-    """Trigger go2rtc config sync after a camera-impacting change."""
-    from app.services.camera_service import CameraService
-    cam_service = CameraService(session)
-    all_cams = await cam_service.list_all()
-    cam_data = []
-    for c in all_cams:
-        st = c.status.value if hasattr(c.status, "value") else str(c.status or "")
-        if st in ("active", "online") and c.stream_url:
-            cam_data.append({"id": str(c.id), "stream_url": c.stream_url})
-    await sync_cameras(cam_data)
 
 
 def _build_stream_url(nvr: Nvr, channel: int, prefer_rtsp: bool = True) -> str:
@@ -171,7 +157,6 @@ async def delete_nvr(
     await session.delete(nvr)
     await session.flush()
 
-    await _sync_after_change(session)
     LOGGER.info("NVR deleted: %s", nvr_id)
     return ApiResponse(success=True, data={"deleted": True})
 
@@ -337,8 +322,6 @@ async def import_nvr_channels(
             "channel": ch,
             "protocol": "rtsp" if has_rtsp else "dvrip",
         })
-
-    await _sync_after_change(session)
 
     LOGGER.info("NVR %s: imported %d channels (protocol=%s)", nvr_id, len(imported), "rtsp" if has_rtsp else "dvrip")
     return ApiResponse(

@@ -24,19 +24,6 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter(tags=["Cameras"])
 
 
-async def _sync_go2rtc(session: AsyncSession) -> None:
-    """Trigger go2rtc config sync after a camera CRUD change."""
-    from app.services.go2rtc_config import sync_cameras
-    cam_service = CameraService(session)
-    all_cams = await cam_service.list_all()
-    cam_data = []
-    for c in all_cams:
-        st = c.status.value if hasattr(c.status, "value") else str(c.status or "")
-        if st in ("active", "online") and c.stream_url:
-            cam_data.append({"id": str(c.id), "stream_url": c.stream_url})
-    await sync_cameras(cam_data)
-
-
 @router.post("/cameras", status_code=201, summary="Register a camera")
 async def create_camera(
     body: CameraCreate,
@@ -52,9 +39,9 @@ async def create_camera(
         status=body.status,
         model_path=body.model_path,
         roi=body.roi,
+        count_line=body.count_line,
         nvr_id=body.nvr_id,
     )
-    await _sync_go2rtc(session)
     await audit.log(action="camera.created")
     return ApiResponse(
         success=True,
@@ -148,7 +135,6 @@ async def update_camera(
         update_fields[field_name] = getattr(body, field_name)
 
     camera = await service.update(camera_uuid, **update_fields)
-    await _sync_go2rtc(session)
     await audit.log(action="camera.updated")
     return ApiResponse(
         success=True,
@@ -165,7 +151,6 @@ async def delete_camera(
     service = CameraService(session)
     audit = AuditService(session)
     await service.delete(camera_uuid)
-    await _sync_go2rtc(session)
     await audit.log(action="camera.deleted")
     return ApiResponse(success=True, data={"deleted": True})
 
@@ -352,32 +337,37 @@ async def list_active_cameras_internal(
     )
 
 
-@router.post("/cameras/internal/sync-go2rtc", summary="Trigger go2rtc config sync (Internal use)")
-async def sync_go2rtc_internal(
+@router.post("/cameras/{camera_uuid}/reset", summary="Reset camera counters (AI engine)")
+async def reset_camera_count(
+    camera_uuid: uuid.UUID,
+    _admin: User = Depends(require_manager_up),
     session: AsyncSession = Depends(get_session),
-    _key: None = Depends(_verify_internal_key),
 ) -> ApiResponse:
-    await _sync_go2rtc(session)
-    return ApiResponse(success=True, data={"synced": True})
-
-
-GO2RTC_URL = os.environ.get("GO2RTC_URL", "")
-
-
-@router.get("/go2rtc/streams", summary="List available go2rtc streams")
-async def list_go2rtc_streams(
-    _any: User = Depends(require_any),
-) -> ApiResponse:
-    if not GO2RTC_URL:
-        return ApiResponse(success=True, data={})
+    """Reset detection/line counters for a camera on the AI engine."""
+    audit = AuditService(session)
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{GO2RTC_URL}/api/streams")
-            resp.raise_for_status()
-            return ApiResponse(success=True, data=resp.json())
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                f"{SETTINGS.ai_engine_url}/api/v1/reset/{camera_uuid}",
+                headers={"X-Internal-Key": SETTINGS.internal_api_key},
+            )
+            if resp.status_code != 200:
+                LOGGER.warning("AI engine reset failed (%d) for camera %s", resp.status_code, camera_uuid)
+                return ApiResponse(
+                    success=False,
+                    error={"code": "RESET_FAILED", "message": "AI engine reset failed"},
+                )
     except Exception as exc:
-        LOGGER.warning("Failed to reach go2rtc: %s", exc)
-        return ApiResponse(success=True, data={})
+        LOGGER.warning("Failed to reset camera %s on AI engine: %s", camera_uuid, exc)
+        return ApiResponse(
+            success=False,
+            error={"code": "RESET_FAILED", "message": str(exc)},
+        )
+    await audit.log(action="camera.count_reset")
+    return ApiResponse(
+        success=True,
+        data={"camera_id": str(camera_uuid), "reset": True},
+    )
 
 
 MODEL_DIRS = [

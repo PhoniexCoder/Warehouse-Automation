@@ -147,6 +147,7 @@ export const api = {
     status?: string
     model_path?: string | null
     roi?: { x: number; y: number }[] | null
+    count_line?: { x: number; y: number }[] | null
   }): Promise<Camera> => {
     const res = await client.post<ApiResponse>("/cameras", data)
     return res.data.data as Camera
@@ -157,12 +158,17 @@ export const api = {
     status?: string
     model_path?: string | null
     roi?: { x: number; y: number }[] | null
+    count_line?: { x: number; y: number }[] | null
   }): Promise<Camera> => {
     const res = await client.put<ApiResponse>(`/cameras/${id}`, data)
     return res.data.data as Camera
   },
   deleteCamera: async (id: string): Promise<void> => {
     await client.delete(`/cameras/${id}`)
+  },
+  resetCamera: async (id: string): Promise<{ camera_id: string; reset: boolean }> => {
+    const res = await client.post<ApiResponse>(`/cameras/${id}/reset`)
+    return res.data.data as { camera_id: string; reset: boolean }
   },
 
   // Models
@@ -366,12 +372,6 @@ export const api = {
     camera_id: string
   }): Promise<any> => {
     const res = await client.post<ApiResponse>("/inventory/sync", data)
-    return res.data.data
-  },
-
-  // go2rtc Streams
-  getGo2rtcStreams: async (): Promise<any> => {
-    const res = await client.get<ApiResponse>("/go2rtc/streams")
     return res.data.data
   },
 }

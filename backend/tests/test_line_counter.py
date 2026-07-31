@@ -116,3 +116,84 @@ def test_properties():
     assert counter.line_y == 500
 
     assert isinstance(counter.crossed_ids, set)
+
+
+def _make_bbox_tracked(track_id: int, bbox: list) -> dict:
+    return {"track_id": track_id, "bbox": bbox, "confidence": 0.9}
+
+
+# ─── Segment mode ─────────────────────────────────────────────────────
+
+SEG_LINE = ((0, 400), (200, 400))
+
+
+def test_segment_first_frame_no_count():
+    counter = LineCounter(p1=SEG_LINE[0], p2=SEG_LINE[1])
+    obj = _make_bbox_tracked(1, [0, 100, 100, 200])
+    n = counter.update([obj])
+    assert n == 0
+    assert counter.line_count == 0
+
+
+def test_segment_crossing_counts():
+    counter = LineCounter(p1=SEG_LINE[0], p2=SEG_LINE[1])
+    counter.update([_make_bbox_tracked(1, [0, 100, 100, 200])])
+
+    obj = _make_bbox_tracked(1, [0, 500, 100, 600])
+    n = counter.update([obj])
+    assert n == 1
+    assert counter.line_count == 1
+
+
+def test_segment_duplicate_prevention():
+    counter = LineCounter(p1=SEG_LINE[0], p2=SEG_LINE[1])
+    counter.update([_make_bbox_tracked(1, [0, 100, 100, 200])])
+    counter.update([_make_bbox_tracked(1, [0, 500, 100, 600])])
+    assert counter.line_count == 1
+
+    counter.update([_make_bbox_tracked(1, [0, 500, 100, 600])])
+    assert counter.line_count == 1
+
+
+def test_segment_diagonal_line():
+    counter = LineCounter(p1=(0, 0), p2=(200, 200))
+    counter.update([_make_bbox_tracked(1, [50, 0, 60, 10])])  # above line (side +)
+    obj = _make_bbox_tracked(1, [0, 400, 10, 410])           # below line (side -)
+    n = counter.update([obj])
+    assert n == 1
+    assert counter.line_count == 1
+
+
+def test_segment_parallel_no_cross():
+    counter = LineCounter(p1=SEG_LINE[0], p2=SEG_LINE[1])
+    counter.update([_make_bbox_tracked(1, [0, 100, 100, 200])])
+    obj = _make_bbox_tracked(1, [0, 150, 100, 250])
+    n = counter.update([obj])
+    assert n == 0
+    assert counter.line_count == 0
+
+
+def test_reset_zeroes_counts():
+    counter = LineCounter(p1=SEG_LINE[0], p2=SEG_LINE[1])
+    counter.update([_make_bbox_tracked(1, [0, 100, 100, 200])])
+    counter.update([_make_bbox_tracked(1, [0, 500, 100, 600])])
+    assert counter.line_count == 1
+
+    counter.reset()
+    assert counter.line_count == 0
+    assert counter.total_count == 0
+
+    # After reset, same track can be counted again
+    counter.update([_make_bbox_tracked(1, [0, 100, 100, 200])])
+    counter.update([_make_bbox_tracked(1, [0, 500, 100, 600])])
+    assert counter.line_count == 1
+
+
+def test_horizontal_reset():
+    counter = LineCounter(line_y=400)
+    counter.update([_make_tracked(1, 300, 350)])
+    counter.update([_make_tracked(1, 300, 550)])
+    assert counter.total_count == 1
+    counter.reset()
+    assert counter.total_count == 0
+    assert counter.crossed_ids == set()

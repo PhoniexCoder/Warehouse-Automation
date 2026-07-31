@@ -32,12 +32,14 @@ class CameraWorker:
         event_queue: Any,
         health_dict: Any,
         stop_event: Any,
+        reset_flags: Any = None,
     ) -> None:
         self.camera_id = camera_id
         self.config = config
         self._event_queue = event_queue
         self._health = health_dict
         self._stop = stop_event
+        self._reset_flags = reset_flags
 
         self._source_type = config.get("source_type", "simulated")
         self._scene = config.get("sim_scene", "entry")
@@ -56,11 +58,15 @@ class CameraWorker:
         self._box_processor: Optional[BoxProcessor] = None
         self._tracker: Optional[ObjectTracker] = None
         self._counter: Optional[LineCounter] = None
+        self._line_counter: Optional[LineCounter] = None
+        self._count_line_points: list[tuple[float, float]] = []
         self._duplicate_guard: Optional[DuplicateGuard] = None
         self._seen_tracks: set = set()
         self._detector: Any = None
         self._detection_conf = float(config.get("detection_conf", 0.55))
         self._count_conf = float(config.get("count_conf", 0.65))
+
+        self._count_line_points = self._parse_count_line(config.get("count_line"))
 
     def run(self) -> None:
         LOGGER.info("[%s] Worker starting (source=%s, scene=%s, line_y=%d)",
@@ -83,6 +89,8 @@ class CameraWorker:
             while not self._stop.is_set():
                 try:
                     frame_start = time.time()
+
+                    self._check_reset_flag()
 
                     ret, frame, pre_dets = self._read_frame()
 
@@ -133,13 +141,15 @@ class CameraWorker:
                         self._report_health("running", {
                             "frames": frame_count,
                             "counted": self._counter.total_count if self._counter else 0,
+                            "line_count": self._line_counter.line_count if self._line_counter else 0,
                             "vis_boxes": len(vis_boxes),
                             "events": len(events),
                             "seen_tracks": len(self._seen_tracks),
                         })
-                        LOGGER.info("[%s] frame=%d vis_boxes=%d events=%d counted=%d seen=%d",
+                        LOGGER.info("[%s] frame=%d vis_boxes=%d events=%d counted=%d line_count=%d seen=%d",
                                     self.camera_id, frame_count, len(vis_boxes), len(events),
                                     self._counter.total_count if self._counter else 0,
+                                    self._line_counter.line_count if self._line_counter else 0,
                                     len(self._seen_tracks))
 
                     if frame_count % 600 == 0 and self._seen_tracks:
@@ -192,6 +202,7 @@ class CameraWorker:
             LOGGER.exception("[%s] Failed to initialise tracker — running without tracking", self.camera_id)
             self._tracker = None
         self._counter = LineCounter(line_y=self._line_y)
+        self._line_counter = LineCounter()
         self._duplicate_guard = DuplicateGuard()
         self._build_roi_mask()
 
@@ -218,6 +229,64 @@ class CameraWorker:
                         self.camera_id, model_path, self._detection_conf, device)
         else:
             LOGGER.info("[%s] No model selected — stream-only mode (no detection)", self.camera_id)
+
+    @staticmethod
+    def _parse_count_line(raw: Any) -> list[tuple[float, float]]:
+        """Parse count_line config into a list of up to 2 normalized (x, y) points."""
+        if not raw:
+            return []
+        pts = raw.get("points") if isinstance(raw, dict) and "points" in raw else raw
+        if not isinstance(pts, list) or len(pts) < 2:
+            return []
+        out = []
+        for p in pts[:2]:
+            try:
+                if isinstance(p, dict) and "x" in p and "y" in p:
+                    out.append((float(p["x"]), float(p["y"])))
+                elif isinstance(p, (list, tuple)) and len(p) == 2:
+                    out.append((float(p[0]), float(p[1])))
+                else:
+                    raise ValueError
+            except (ValueError, TypeError):
+                LOGGER.warning("[count_line] Skipping invalid point: %s", p)
+        return out if len(out) == 2 else []
+
+    def _update_line_counter(self, frame: np.ndarray, tracked: list[dict]) -> None:
+        if not self._count_line_points or self._line_counter is None:
+            return
+        h, w = frame.shape[:2]
+        p1 = (self._count_line_points[0][0] * w, self._count_line_points[0][1] * h)
+        p2 = (self._count_line_points[1][0] * w, self._count_line_points[1][1] * h)
+        self._line_counter.set_line(p1, p2)
+        self._line_counter.update(tracked)
+
+    def _check_reset_flag(self) -> None:
+        if self._reset_flags is None:
+            return
+        try:
+            if self._reset_flags.get(self.camera_id):
+                self.reset_state()
+                self._reset_flags.pop(self.camera_id, None)
+        except Exception:
+            pass
+
+    def reset_state(self) -> None:
+        """Zero all counters and tracking state (triggered by reset endpoint)."""
+        LOGGER.info("[%s] Resetting counters", self.camera_id)
+        self._seen_tracks.clear()
+        if self._counter is not None:
+            self._counter.reset()
+        if self._line_counter is not None:
+            self._line_counter.reset()
+        if self._duplicate_guard is not None and hasattr(self._duplicate_guard, "reset"):
+            self._duplicate_guard.reset()
+        try:
+            entry = dict(self._health.get(self.camera_id, {}))
+            entry["counted"] = 0
+            entry["line_count"] = 0
+            self._health[self.camera_id] = entry
+        except Exception:
+            pass
 
     def _read_frame(self):
         if self._source_type == "simulated":
@@ -324,6 +393,8 @@ class CameraWorker:
         if not tracked:
             return [], []
 
+        self._update_line_counter(frame, tracked)
+
         ts = datetime.now(timezone.utc).isoformat()
         events: list[dict] = []
         vis_boxes: list[dict] = []
@@ -386,6 +457,12 @@ class CameraWorker:
             )
             cv2.polylines(vis, [pts], isClosed=True, color=(0, 255, 255), thickness=2)
 
+        if self._count_line_points and len(self._count_line_points) >= 2:
+            h, w = vis.shape[:2]
+            p1 = (int(self._count_line_points[0][0] * w), int(self._count_line_points[0][1] * h))
+            p2 = (int(self._count_line_points[1][0] * w), int(self._count_line_points[1][1] * h))
+            cv2.line(vis, p1, p2, (255, 0, 255), 2)
+
         for b in boxes:
             x1, y1, x2, y2 = b["x1"], b["y1"], b["x2"], b["y2"]
             label = b.get("label", "")
@@ -404,6 +481,9 @@ class CameraWorker:
         if self._counter:
             count_text = f"Count: {self._counter.total_count}"
             cv2.putText(vis, count_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+            if self._line_counter is not None and self._count_line_points:
+                line_text = f"Line: {self._line_counter.line_count}"
+                cv2.putText(vis, line_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 255), 2)
 
         return vis
 

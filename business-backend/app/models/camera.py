@@ -45,6 +45,9 @@ class Camera(Base):
     roi: Mapped[dict | None] = mapped_column(
         JSON, nullable=True,
     )
+    count_line: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True,
+    )
 
     nvr_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -28,6 +28,7 @@ class CameraManager:
         self._running = False
         self._restart_backoff: dict[str, float] = {}
         self._dead_cameras: set[str] = set()
+        self._reset_flags: Any = None
 
     @property
     def event_queue(self) -> Optional[multiprocessing.Queue]:
@@ -58,12 +59,27 @@ class CameraManager:
     def stop_camera(self, camera_id: str) -> None:
         self.remove_camera(camera_id)
 
+    def reset_camera(self, camera_id: str) -> bool:
+        """Request the camera's worker to zero its counters. Returns False if unknown."""
+        if camera_id not in self._configs:
+            return False
+        if self._reset_flags is None:
+            return False
+        try:
+            self._reset_flags[camera_id] = time.time()
+        except Exception:
+            LOGGER.exception("[%s] Failed to set reset flag", camera_id)
+            return False
+        LOGGER.info("[%s] Reset flag set", camera_id)
+        return True
+
     def start_all(self) -> None:
         LOGGER.info("Starting CameraManager with %d cameras", len(self._configs))
 
         self._manager = multiprocessing.Manager()
         self._health = self._manager.dict()
         self._event_queue = multiprocessing.Queue(maxsize=_EVENT_QUEUE_MAXSIZE)
+        self._reset_flags = self._manager.dict()
 
         self._consumer = EventConsumer(
             event_queue=self._event_queue,
@@ -94,7 +110,7 @@ class CameraManager:
             }
         worker = multiprocessing.Process(
             target=self._worker_main,
-            args=(camera_id, config, self._event_queue, self._health, self._stop_event),
+            args=(camera_id, config, self._event_queue, self._health, self._stop_event, self._reset_flags),
             name=f"cam-{camera_id}",
             daemon=True,
         )
@@ -109,11 +125,12 @@ class CameraManager:
         event_queue: Any,
         health: Any,
         stop_event: Any,
+        reset_flags: Any = None,
     ) -> None:
         import os
         if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
             os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000|rw_timeout;5000000|timeout;5000000"
-        worker = CameraWorker(camera_id, config, event_queue, health, stop_event)
+        worker = CameraWorker(camera_id, config, event_queue, health, stop_event, reset_flags)
         worker.run()
 
     def _monitor_loop(self) -> None:
@@ -201,6 +218,8 @@ class CameraManager:
 
         if self._manager is not None:
             self._manager.shutdown()
+
+        self._reset_flags = None
 
         LOGGER.info("CameraManager stopped")
 

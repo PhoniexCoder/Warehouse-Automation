@@ -22,6 +22,7 @@ class CameraService:
         status: str | None = None,
         model_path: str | None = None,
         roi: dict | list | None = None,
+        count_line: dict | list | None = None,
         nvr_id: uuid.UUID | None = None,
     ) -> Camera:
         camera = Camera(
@@ -31,6 +32,7 @@ class CameraService:
             status=CameraStatus(status) if isinstance(status, str) else (status or CameraStatus.ACTIVE),
             model_path=model_path,
             roi=roi,
+            count_line=count_line,
             nvr_id=nvr_id,
         )
         self._session.add(camera)
@@ -46,6 +48,7 @@ class CameraService:
         status: str | None = None,
         model_path: str | None = None,
         roi: dict | list | None = None,
+        count_line: dict | list | None = None,
         nvr_id: uuid.UUID | None = None,
     ) -> Camera:
         stmt = select(Camera).where(Camera.stream_url == stream_url)
@@ -65,6 +68,8 @@ class CameraService:
                 existing.model_path = model_path
             if roi is not None:
                 existing.roi = roi
+            if count_line is not None:
+                existing.count_line = count_line
             if nvr_id:
                 existing.nvr_id = nvr_id
             await self._session.flush()
@@ -78,6 +83,7 @@ class CameraService:
             status=status,
             model_path=model_path,
             roi=roi,
+            count_line=count_line,
             nvr_id=nvr_id,
         )
 

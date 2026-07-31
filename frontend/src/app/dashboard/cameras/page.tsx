@@ -313,6 +313,16 @@ export default function CamerasPage() {
     }
   }
 
+  async function handleResetCount(id: string) {
+    try {
+      await api.resetCamera(id)
+      alert("Counters reset")
+      await fetchCamerasData()
+    } catch (err: any) {
+      alert(err.response?.data?.error?.message || err.message || "Failed to reset counters")
+    }
+  }
+
   async function openDiscover() {
     setDiscoverModalOpen(true)
     setDiscovering(true)
@@ -600,6 +610,11 @@ export default function CamerasPage() {
                               ROI
                             </span>
                           )}
+                          {c.count_line && c.count_line.length > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-50 text-fuchsia-600 font-medium">
+                              Count Line
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-secondary mt-1.5">
                           {c.last_seen ? (
@@ -617,6 +632,7 @@ export default function CamerasPage() {
                     {user?.role !== "operator" && (
                       <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
                         <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>Edit</Button>
+                        <Button variant="secondary" size="sm" onClick={() => handleResetCount(c.id)}>Reset Count</Button>
                         <Button
                           variant="secondary"
                           size="sm"

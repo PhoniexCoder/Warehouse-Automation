@@ -29,6 +29,7 @@ class CameraCreate(BaseModel):
     status: str | None = None
     model_path: str | None = None
     roi: dict | list | None = None
+    count_line: dict | list | None = None
     nvr_id: uuid.UUID | None = None
 
     @field_validator("model_path")
@@ -45,6 +46,7 @@ class CameraUpdate(BaseModel):
     status: str | None = None
     model_path: str | None = None
     roi: dict | list | None = None
+    count_line: dict | list | None = None
     nvr_id: uuid.UUID | None = None
 
     @field_validator("model_path")
@@ -64,6 +66,7 @@ class CameraResponse(BaseModel):
     last_seen: datetime | None
     model_path: str | None = None
     roi: dict | list | None = None
+    count_line: dict | list | None = None
     nvr_id: uuid.UUID | None = None
     health: dict | None = None
 

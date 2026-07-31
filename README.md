@@ -1,6 +1,6 @@
 # Warehouse Automation — AI Video Analytics & Box Counting System
 
-AI-powered real-time warehouse monitoring, box detection, object tracking, and virtual line counting system built with High-Performance PyTorch/YOLO inference, CUDA GPU acceleration, zero-latency RAM frame caching, and `go2rtc` stream multiplexing.
+AI-powered real-time warehouse monitoring, box detection, object tracking, and virtual line counting system built with High-Performance PyTorch/YOLO inference, CUDA GPU acceleration, zero-latency RAM frame caching, and direct DVRIP/RTSP capture (no go2rtc).
 
 ---
 
@@ -12,15 +12,14 @@ graph TD
         NVR["Dahua/Xiongmai NVR / IP Cameras<br>(192.168.31.169 / 192.168.1.34)"]
     end
 
-    subgraph Bridge Layer ["2. Streaming & Bridge Layer"]
-        GO2RTC["go2rtc Container<br>(Ports: 1476 API, 554 RTSP, 8555 WebRTC)"]
+    subgraph Capture Layer ["2. Direct Capture Layer"]
+        CameraStream["CameraStream / RtspCameraStream<br>(Direct DVRIP / RTSP via FFmpeg)"]
     end
 
     subgraph Analytics Layer ["3. AI Detection & Processing Layer"]
         CVEngine["cv-engine Container<br>(FastAPI + PyTorch + CUDA GPU)"]
-        StreamMgr["StreamManager & RtspDecoder<br>(FFmpeg Pipe Decoder)"]
         RAMStore["RAM FrameStore<br>(Zero-Latency Memory Cache)"]
-        YOLOWorker["CameraWorker & YOLO Model<br>(ROI Crop + BBox Tracker + Line Counter)"]
+        YOLOWorker["CameraWorker & YOLO Model<br>(ROI Crop + BBox Tracker + Count Line)"]
     end
 
     subgraph Web App Layer ["4. Application & Presentation Layer"]
@@ -29,13 +28,12 @@ graph TD
     end
 
     %% Protocol Connections
-    NVR -->|"DVR-IP Protocol (Port 34567)<br>H.265 / H.264 Video Stream"| GO2RTC
-    GO2RTC -->|"RTSP over TCP (Port 554)<br>rtsp://host.docker.internal:554/cam_uuid"| StreamMgr
-    StreamMgr -->|"MJPEG Bytes & Raw BGR Frames"| RAMStore
+    NVR -->|"DVR-IP (34567) / RTSP (554)<br>H.265 / H.264 Video Stream"| CameraStream
+    CameraStream -->|"MJPEG Bytes & Raw BGR Frames"| RAMStore
     RAMStore -->|"Zero-Copy Memory Fetch"| YOLOWorker
     YOLOWorker -->|"Annotated Frames & BBox Counts"| CVEngine
     CVEngine -->|"WebSocket Video Stream<br>/api/v1/stream/ws/cam_uuid"| Frontend
-    BusinessBackend -->|"Dynamic go2rtc.yaml Sync"| GO2RTC
+    BusinessBackend -->|"Camera config / ROI / count_line sync"| CVEngine
 ```
 
 ---
@@ -44,12 +42,11 @@ graph TD
 
 | Layer | Component | Protocol / Port | Responsibilities & Data Flow |
 | :--- | :--- | :--- | :--- |
-| **1. Source** | NVR / IP Camera | DVR-IP (`34567`) / RTSP (`554`) | Single connection reader. `go2rtc` is the **only service** connecting directly to hardware to eliminate NVR CPU overhead. |
-| **2. Bridge** | `go2rtc` | REST (`1476`) / RTSP (`554`) | Multiplexes DVR-IP streams into RTSP endpoints. Config (`go2rtc.yaml`) is auto-generated dynamically by `business-backend` with Camera UUID keys. |
-| **3. AI Engine** | `cv-engine` (`RtspDecoder`) | RTSP over TCP | FFmpeg pipe decoder pulling H.265 (HEVC) / H.264 streams from `go2rtc` and decoding into low-latency JPEG image streams. |
+| **1. Source** | NVR / IP Camera | DVR-IP (`34567`) / RTSP (`554`) | Connects directly to hardware; no intermediate bridge service. |
+| **2. Capture** | `CameraStream` / `RtspCameraStream` | Direct DVRIP / RTSP via FFmpeg | Decodes H.265/H.264 into low-latency JPEG frames pushed to the RAM FrameStore. |
 | **3. Memory Cache** | `FrameStore` | RAM Lock Cache | Stores raw BGR NumPy arrays and JPEG bytes in system RAM memory with 0ms disk I/O latency. |
-| **3. Analytics** | `CameraWorker` | PyTorch / CUDA GPU | Crops ROI polygon for fast YOLO box detection, tracks object IDs across frames, and updates virtual line crossing count totals. |
-| **4. Business Backend** | `business-backend` | REST API (`8001`) | Handles NVR camera CRUD operations, stores settings in PostgreSQL, and generates dynamic `go2rtc.yaml` configurations. |
+| **3. Analytics** | `CameraWorker` | PyTorch / CUDA GPU | Crops ROI polygon for fast YOLO box detection, tracks object IDs across frames, and updates count-line crossing totals. |
+| **4. Business Backend** | `business-backend` | REST API (`8001`) | Handles NVR camera CRUD operations, stores settings in PostgreSQL, and pushes camera config (ROI, count_line, model) to the AI engine. |
 | **4. UI** | Next.js Frontend | WebSocket (`/api/v1/stream/ws/...`) | Renders real-time annotated live video streams and live box count metrics over WebSocket (<100ms latency). |
 
 ---
@@ -75,16 +72,13 @@ docker compose ps
 
 # View live CV Engine logs
 docker compose logs --tail 60 -f cv-engine
-
-# View go2rtc streaming bridge logs
-docker compose logs --tail 50 go2rtc
 ```
 
 ---
 
 ## 🧪 Verification & Testing
 
-Run the full pytest backend test suite (56 tests):
+Run the full pytest backend test suite (70 tests):
 
 ```bash
 cd backend

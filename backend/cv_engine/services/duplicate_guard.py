@@ -20,3 +20,7 @@ class DuplicateGuard:
         self._track_ids.add(track_id)
         if qr_data:
             self._qr_codes.add(qr_data)
+
+    def reset(self) -> None:
+        self._track_ids.clear()
+        self._qr_codes.clear()

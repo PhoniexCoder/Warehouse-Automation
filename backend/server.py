@@ -10,7 +10,6 @@ import logging
 import multiprocessing
 import re
 import sys
-import urllib.request
 
 multiprocessing.set_start_method("spawn", force=True)
 
@@ -65,12 +64,8 @@ import re
 import requests
 import threading
 import time
-from urllib.parse import urlparse
 
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
-GO2RTC_RTSP_URL = os.getenv("GO2RTC_RTSP_URL", "http://host.docker.internal:554")
-# Extract host:port from GO2RTC_RTSP_URL for RTSP stream construction
-_GO2RTC_HOST = GO2RTC_RTSP_URL.replace("http://", "").replace("https://", "").rstrip("/")
 
 _DVRIP_URL_RE = re.compile(r"^dvrip://([^:]+):([^@]+)@([^:]+):(\d+)/(\d+)$")
 _RTSP_URL_RE = re.compile(r"^rtsp://")
@@ -82,7 +77,7 @@ def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-
 
 
 def _config_hash(config: dict) -> str:
-    keys = {"model_path", "roi", "source_type", "source", "detection_conf", "count_conf"}
+    keys = {"model_path", "roi", "count_line", "source_type", "source", "detection_conf", "count_conf"}
     snapshot = {k: config.get(k) for k in sorted(keys)}
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -101,39 +96,39 @@ def _parse_dvrip_url(url: str) -> dict | None:
     }
 
 
-def _resolve_go2rtc_rtsp_url(cam_id: str, stream_url: str) -> str:
-    """Resolve RTSP URL from go2rtc, prioritizing camera UUID keys dynamically written by business backend."""
-    try:
-        host_ip = _GO2RTC_HOST.split(":")[0]
-        req_url = f"http://{host_ip}:1476/api/streams"
-        with urllib.request.urlopen(req_url, timeout=1.0) as resp:
-            streams = json.loads(resp.read().decode())
-            if isinstance(streams, dict):
-                if cam_id in streams:
-                    return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
+def _route_camera(cam_id: str, stream_url: str) -> bool:
+    """Start the correct stream for a camera URL.
 
-                ch_num = None
-                dvrip_info = _parse_dvrip_url(stream_url)
-                if dvrip_info:
-                    ch_num = dvrip_info["channel"]
-                else:
-                    ch_match = re.search(r"(?:channel[=/]|/)(\d+)", stream_url)
-                    if ch_match:
-                        ch_num = int(ch_match.group(1))
+    dvrip:// URLs connect directly via DVRIP (CameraStream); native RTSP
+    URLs are read directly (RtspCameraStream). go2rtc is not involved.
+    Returns True if a stream was started.
+    """
+    if stream_url.startswith("dvrip://"):
+        info = _parse_dvrip_url(stream_url)
+        if not info:
+            LOGGER.warning("VMS: Skipping unparseable DVRIP URL for %s: %s", cam_id, stream_url)
+            return False
+        stream_manager.start_camera(
+            camera_id=cam_id,
+            host=info["host"],
+            port=info["port"],
+            username=info["username"],
+            password=info["password"],
+            channel=info["channel"],
+        )
+        return True
 
-                ch_name = f"ch{ch_num}" if ch_num is not None else None
-                if ch_name and ch_name in streams:
-                    return f"rtsp://{_GO2RTC_HOST}/{ch_name}"
-    except Exception:
-        pass
+    if stream_url.startswith("rtsp://"):
+        stream_manager.start_camera_rtsp(camera_id=cam_id, rtsp_url=stream_url)
+        return True
 
-    # Primary default: Camera UUID (matches dynamic business-backend go2rtc config)
-    return f"rtsp://{_GO2RTC_HOST}/{cam_id}"
+    LOGGER.warning("VMS: Skipping camera %s with unsupported stream URL: %s", cam_id, stream_url)
+    return False
 
 
 def sync_cameras_loop():
     time.sleep(5)
-    LOGGER.info("VMS Sync loop started (go2rtc bridge mode)")
+    LOGGER.info("VMS Sync loop started (direct dvrip/rtsp mode)")
     while True:
         try:
             url = f"{BUSINESS_BACKEND_URL}/api/v1/cameras/internal/active"
@@ -144,10 +139,6 @@ def sync_cameras_loop():
                     active_cameras = data["data"]
                     active_ids = set()
 
-                    # Group DVRIP cameras by NVR host:port for staggered startup
-                    dvrip_cameras = []
-                    rtsp_cameras = []
-
                     for cam in active_cameras:
                         try:
                             cam_id = cam["id"]
@@ -157,37 +148,9 @@ def sync_cameras_loop():
                             if not stream_url:
                                 continue
 
-                            if stream_url.startswith("dvrip://"):
-                                dvrip_cameras.append(cam)
-                            else:
-                                rtsp_cameras.append(cam)
-                        except Exception:
-                            LOGGER.exception("VMS: Failed to process camera %s", cam.get("id", "?"))
-
-                    # Route ALL cameras through go2rtc RTSP (both DVRIP and native RTSP)
-                    # go2rtc handles DVRIP protocol natively — cv-engine reads RTSP from go2rtc
-                    all_cameras = dvrip_cameras + rtsp_cameras
-
-                    for cam in all_cameras:
-                        try:
-                            cam_id = cam["id"]
-                            stream_url = cam.get("stream_url", "")
-
-                            if not stream_url:
+                            # Direct capture: DVRIP via CameraStream, RTSP via RtspCameraStream
+                            if not _route_camera(cam_id, stream_url):
                                 continue
-
-                            # For DVRIP cameras: read RTSP from go2rtc (go2rtc handles DVRIP protocol)
-                            # For native RTSP cameras: read directly from the RTSP URL
-                            if stream_url.startswith("dvrip://"):
-                                rtsp_source = _resolve_go2rtc_rtsp_url(cam_id, stream_url)
-                            else:
-                                rtsp_source = stream_url
-
-                            # Start RTSP stream through StreamManager (unified WebSocket delivery)
-                            stream_manager.start_camera_rtsp(
-                                camera_id=cam_id,
-                                rtsp_url=rtsp_source,
-                            )
 
                             # Start detection worker (reads from FrameStore)
                             config = {
@@ -197,6 +160,7 @@ def sync_cameras_loop():
                                 "target_fps": 5,
                                 "model_path": cam.get("model_path") or "",
                                 "roi": cam.get("roi"),
+                                "count_line": cam.get("count_line"),
                                 "detection_conf": 0.55,
                                 "count_conf": 0.65,
                             }
@@ -221,7 +185,7 @@ def sync_cameras_loop():
                                         camera_manager.start_camera(cam_id, config)
                             else:
                                 config["_hash"] = _config_hash(config)
-                                LOGGER.info("VMS: Starting camera worker for %s (%s) [go2rtc-rtsp->file_store]",
+                                LOGGER.info("VMS: Starting camera worker for %s (%s) [direct->file_store]",
                                              cam.get("camera_name"), cam_id)
                                 camera_manager.start_camera(cam_id, config)
                         except Exception:
@@ -234,7 +198,7 @@ def sync_cameras_loop():
                             LOGGER.info("VMS: Stopping camera worker for %s", c_id)
                             camera_manager.stop_camera(c_id)
 
-                    # Stop streams for inactive cameras (both DVRIP and RTSP)
+                    # Stop streams for inactive cameras
                     stream_status = stream_manager.status
                     for s_cam_id in stream_status:
                         if s_cam_id not in active_ids:
@@ -274,6 +238,20 @@ def get_cameras(x_internal_key: str = Header(..., alias="X-Internal-Key")) -> di
         "success": True,
         "data": camera_manager.get_status(),
         "stream_status": stream_manager.status,
+        "error": None,
+    }
+
+
+@app.post("/api/v1/reset/{camera_id}")
+def reset_camera_count(camera_id: str, x_internal_key: str = Header(..., alias="X-Internal-Key")) -> dict:
+    """Reset a camera's detection/line counters (called by business backend)."""
+    if x_internal_key != _CV_INTERNAL_KEY:
+        raise HTTPException(status_code=401, detail="Invalid internal API key")
+    if not camera_manager.reset_camera(camera_id):
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found")
+    return {
+        "success": True,
+        "data": {"camera_id": camera_id, "reset": True},
         "error": None,
     }
 
