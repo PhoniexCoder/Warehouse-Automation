@@ -232,3 +232,21 @@ def test_slow_detection_does_not_stall_publish():
 
     assert dets <= 6
     assert published >= 50
+
+
+# ── _sleep pacing ─────────────────────────────────────────────────────────
+
+def test_sleep_clamps_negative_delay():
+    """Regression: under CPU contention the worker can be descheduled past its
+    deadline, so `time.sleep(deadline - now)` went negative and raised
+    ValueError ("sleep length must be non-negative") — killing the pacing and
+    injecting 1s stutters. _sleep must clamp and return immediately."""
+    import threading
+    import time
+
+    w = _make_worker()
+    w._stop = threading.Event()
+
+    t0 = time.time()
+    w._sleep(-1.0)  # must not raise
+    assert time.time() - t0 < 0.5

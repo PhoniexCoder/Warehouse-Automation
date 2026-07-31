@@ -572,9 +572,11 @@ class CameraWorker:
             pass
 
     def _sleep(self, seconds: float) -> None:
-        deadline = time.time() + seconds
+        # Clamp to >= 0: under CPU contention the worker can be descheduled past
+        # its deadline, making `deadline - now` negative and `time.sleep(<0)` raise.
+        deadline = time.time() + max(0.0, seconds)
         while time.time() < deadline and not self._stop.is_set():
-            time.sleep(min(0.1, deadline - time.time()))
+            time.sleep(max(0.0, min(0.1, deadline - time.time())))
 
     def _cleanup(self) -> None:
         LOGGER.info("[%s] Worker cleaning up", self.camera_id)

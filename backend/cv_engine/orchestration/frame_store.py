@@ -45,10 +45,10 @@ class FrameStore:
                 self._locks[camera_id] = threading.Lock()
             return self._locks[camera_id]
 
-    def _path(self, key: str) -> str:
+    def _path(self, key: str, suffix: str = ".jpg") -> str:
         """Get the /dev/shm path for a given key."""
         safe = key.replace("/", "_").replace("\\", "_")
-        return os.path.join(self._dir, f"{safe}.jpg")
+        return os.path.join(self._dir, f"{safe}{suffix}")
 
     def _write(self, key: str, jpeg_bytes: bytes) -> None:
         """Atomic write: write to .tmp then rename for zero corrupt-read risk."""
@@ -58,6 +58,21 @@ class FrameStore:
             with open(tmp, "wb") as f:
                 f.write(jpeg_bytes)
             os.replace(tmp, path)  # atomic on Linux
+        except Exception:
+            pass
+
+    def _write_array(self, key: str, frame: np.ndarray) -> None:
+        """Atomically store an uncompressed BGR frame as .npy (no JPEG round-trip).
+
+        The worker process reads these directly instead of decoding a JPEG,
+        which removes one imdecode+imencode per frame per camera from the
+        CPU budget (the biggest win for sustaining constant FPS).
+        """
+        path = self._path(key, ".npy")
+        tmp = path + ".tmp.npy"  # np.save appends .npy unless already present
+        try:
+            np.save(tmp, frame)
+            os.replace(tmp, path)
         except Exception:
             pass
 
@@ -79,9 +94,15 @@ class FrameStore:
         annotated: bool = False,
         raw_frame: Optional[np.ndarray] = None,
     ) -> None:
-        """Store pre-encoded JPEG bytes to /dev/shm."""
+        """Store pre-encoded JPEG bytes to /dev/shm.
+
+        When raw_frame is provided (uncompressed BGR), also store it as .npy
+        so detection workers can read it without decoding the JPEG.
+        """
         key = f"annotated_{camera_id}" if annotated else camera_id
         self._write(key, jpeg_bytes)
+        if raw_frame is not None and raw_frame.size > 0 and not annotated:
+            self._write_array(key, raw_frame)
 
     def publish(self, camera_id: str, frame: np.ndarray, quality: int = 80) -> None:
         """Encode frame to JPEG and write to /dev/shm."""
@@ -105,7 +126,17 @@ class FrameStore:
         return self._read(key)
 
     def latest_raw_frame(self, camera_id: str) -> Optional[np.ndarray]:
-        """Fetch latest frame by decoding JPEG from /dev/shm."""
+        """Fetch latest frame without a JPEG decode when possible.
+
+        Prefers the uncompressed .npy copy (written alongside the JPEG by
+        publish_bytes), falling back to decoding the stored JPEG.
+        """
+        try:
+            arr = np.load(self._path(camera_id, ".npy"), allow_pickle=False)
+            if arr is not None and arr.size > 0:
+                return arr
+        except Exception:
+            pass
         data = self._read(camera_id)
         if data is None:
             return None
