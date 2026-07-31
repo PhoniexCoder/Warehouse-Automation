@@ -592,18 +592,13 @@ class RtspCameraStream:
             self._stop.wait(delay)
 
     def _distribute_jpeg(self, jpeg_bytes: bytes) -> None:
-        # Decode once and store both the JPEG bytes and the uncompressed raw
-        # frame (as .npy) so workers skip the JPEG round-trip entirely.
-        frame = None
         try:
             arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
             frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        except Exception:
-            pass
-        try:
-            self._frame_store.publish_bytes(
-                self.camera_id, jpeg_bytes, raw_frame=frame
-            )
+            if frame is not None:
+                self._frame_store.publish(
+                    self.camera_id, frame, quality=JPEG_QUALITY_STORE
+                )
         except Exception:
             pass
 

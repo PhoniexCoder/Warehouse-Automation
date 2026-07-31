@@ -177,7 +177,6 @@ def sync_cameras_loop():
                                 "line_y": 500,
                                 "display_name": cam.get("camera_name", ""),
                                 "target_fps": 20,
-                                "detection_skip": 2,
                                 "model_path": cam.get("model_path") or "",
                                 "roi": cam.get("roi"),
                                 "count_line": cam.get("count_line"),
@@ -185,10 +184,10 @@ def sync_cameras_loop():
                                 "count_conf": 0.65,
                             }
 
-                            # Detection runs on every other frame to keep inference
-                            # from stealing the CPU budget needed to hold target_fps.
-                            # Tracking/counting still work because tracks persist
-                            # across skipped frames.
+                            # Video-file cameras: skip every other detection frame to keep
+                            # annotated output smooth even when detection is the bottleneck.
+                            if stream_url.startswith("file://") or stream_url.lower().endswith(".mp4"):
+                                config["detection_skip"] = 2
 
                             if cam_id in camera_manager._configs:
                                 old_hash = camera_manager._configs[cam_id].get("_hash", "")
