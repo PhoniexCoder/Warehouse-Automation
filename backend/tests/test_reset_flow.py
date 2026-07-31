@@ -131,3 +131,72 @@ def test_manager_reset_camera_without_manager_returns_false():
     m = CameraManager()
     m.add_camera("cam_test", {"source_type": "simulated"})
     assert m.reset_camera("cam_test") is False
+
+
+# ── detection_skip ───────────────────────────────────────────────────────
+
+def _run_worker(w, min_reads: int = 10):
+    """Run the worker loop in a thread until the fake source read enough frames."""
+    import queue
+    import threading
+    import time
+
+    import numpy as np
+
+    class FakeSource:
+        def __init__(self):
+            self.frame = np.full((240, 320, 3), 128, dtype=np.uint8)
+            self.read_count = 0
+
+        def read(self):
+            self.read_count += 1
+            return True, self.frame, None
+
+        def release(self):
+            pass
+
+    fake = FakeSource()
+    w._frame_source = fake
+    w._publish_frame = lambda frame: None
+    w._event_queue = queue.Queue()
+    w._stop = threading.Event()
+
+    det_calls = {"n": 0}
+
+    def counting_process(frame, pre_dets):
+        det_calls["n"] += 1
+        return [], [{"x1": 0, "y1": 0, "x2": 10, "y2": 10, "label": "x", "confidence": 0.9}]
+
+    w._process_frame = counting_process
+
+    thread = threading.Thread(target=w.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 5
+    while time.time() < deadline and fake.read_count < min_reads:
+        time.sleep(0.01)
+    w._stop.set()
+    thread.join(timeout=3)
+
+    return fake.read_count, det_calls["n"]
+
+
+def test_detection_skip_throttles_detection_calls():
+    w = _make_worker(source_type="simulated", detection_skip=2, target_fps=1000)
+    w._init_components = lambda: None
+
+    reads, dets = _run_worker(w)
+
+    assert reads >= 10
+    assert dets >= 3
+    assert dets < reads
+    assert dets * 2 >= reads - 1
+
+
+def test_detection_skip_default_runs_every_frame():
+    w = _make_worker(source_type="simulated", target_fps=1000)
+    w._init_components = lambda: None
+
+    reads, dets = _run_worker(w)
+
+    assert reads >= 10
+    assert dets == reads

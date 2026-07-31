@@ -47,6 +47,10 @@ class CameraWorker:
         self._tracker_method = config.get("tracker", "bytetrack")
         self._target_fps = config.get("target_fps", _TARGET_FPS)
         self._frame_interval = 1.0 / max(self._target_fps, 1.0)
+        self._detection_skip = max(1, int(config.get("detection_skip", 1)))
+        self._detection_frame = 0
+        self._last_vis_boxes: list[dict] = []
+        self._last_events: list[dict] = []
         self._consecutive_errors = 0
         self._frame_store = FrameStore()
         self._roi = config.get("roi")
@@ -128,7 +132,18 @@ class CameraWorker:
                     self._consecutive_errors = 0
                     frame_count += 1
 
-                    events, vis_boxes = self._process_frame(frame, pre_dets)
+                    self._detection_frame += 1
+                    run_detection = (
+                        self._detection_skip <= 1
+                        or self._detection_frame % self._detection_skip == 0
+                    )
+                    if run_detection:
+                        events, vis_boxes = self._process_frame(frame, pre_dets)
+                        self._last_events = events
+                        self._last_vis_boxes = vis_boxes
+                    else:
+                        events, vis_boxes = self._last_events, self._last_vis_boxes
+
                     try:
                         vis_frame = self._draw_overlays(frame, vis_boxes)
                         self._publish_frame(vis_frame)

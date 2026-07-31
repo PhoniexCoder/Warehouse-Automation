@@ -79,7 +79,7 @@ def _verify_cv_internal_key(x_internal_key: str = Header(..., alias="X-Internal-
 
 
 def _config_hash(config: dict) -> str:
-    keys = {"model_path", "roi", "count_line", "source_type", "source", "detection_conf", "count_conf"}
+    keys = {"model_path", "roi", "count_line", "source_type", "source", "detection_conf", "count_conf", "target_fps", "detection_skip"}
     snapshot = {k: config.get(k) for k in sorted(keys)}
     return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -176,13 +176,18 @@ def sync_cameras_loop():
                                 "source_type": "file_store",
                                 "line_y": 500,
                                 "display_name": cam.get("camera_name", ""),
-                                "target_fps": 5,
+                                "target_fps": 20,
                                 "model_path": cam.get("model_path") or "",
                                 "roi": cam.get("roi"),
                                 "count_line": cam.get("count_line"),
                                 "detection_conf": 0.55,
                                 "count_conf": 0.65,
                             }
+
+                            # Video-file cameras: skip every other detection frame to keep
+                            # annotated output smooth even when detection is the bottleneck.
+                            if stream_url.startswith("file://") or stream_url.lower().endswith(".mp4"):
+                                config["detection_skip"] = 2
 
                             if cam_id in camera_manager._configs:
                                 old_hash = camera_manager._configs[cam_id].get("_hash", "")
