@@ -613,17 +613,196 @@ class RtspCameraStream:
                 self._ws_subscribers.pop(sid, None)
 
 
+class VideoFileCameraStream:
+    """Manages a video file playback as a camera stream.
+
+    Opens a local video file via cv2.VideoCapture, loops on EOF, paces
+    to the video's native FPS, and publishes frames to FrameStore.
+    Mirrors the RtspCameraStream interface for consistency.
+    """
+
+    def __init__(
+        self,
+        camera_id: str,
+        file_path: str,
+        frame_store: FrameStore,
+    ) -> None:
+        self.camera_id = camera_id
+        self.file_path = file_path
+        self._frame_store = frame_store
+
+        self._cap: Optional[cv2.VideoCapture] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._connected = False
+        self._consecutive_errors = 0
+        self._last_frame_time = 0.0
+        self._total_frames = 0
+        self._fps = 30.0
+
+        self._ws_subscribers: dict[str, Callable] = {}
+        self._sub_lock = threading.Lock()
+
+    @property
+    def is_running(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def status(self) -> dict:
+        return {
+            "camera_id": self.camera_id,
+            "connected": self._connected,
+            "running": self.is_running,
+            "total_frames": self._total_frames,
+            "last_frame_age": (
+                time.time() - self._last_frame_time
+                if self._last_frame_time
+                else None
+            ),
+            "subscribers": len(self._ws_subscribers),
+            "consecutive_errors": self._consecutive_errors,
+            "source_type": "video_file",
+            "file_path": self.file_path,
+        }
+
+    def start(self) -> None:
+        if self.is_running:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name=f"video-{self.camera_id}",
+        )
+        self._thread.start()
+        LOGGER.info("[%s] VideoFileCameraStream started (%s)", self.camera_id, self.file_path)
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._connected = False
+
+        if self._cap:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+            self._cap = None
+
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    def subscribe_websocket(self, subscriber_id: str, queue_put: Callable) -> None:
+        with self._sub_lock:
+            self._ws_subscribers[subscriber_id] = queue_put
+
+    def unsubscribe_websocket(self, subscriber_id: str) -> None:
+        with self._sub_lock:
+            self._ws_subscribers.pop(subscriber_id, None)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._cap = cv2.VideoCapture(self.file_path)
+                if not self._cap.isOpened():
+                    LOGGER.error("[%s] Failed to open video file: %s", self.camera_id, self.file_path)
+                    self._stop.wait(10.0)
+                    continue
+
+                # Get native FPS for pacing
+                fps = self._cap.get(cv2.CAP_PROP_FPS)
+                if fps > 0:
+                    self._fps = fps
+                else:
+                    self._fps = 30.0
+                frame_interval = 1.0 / self._fps
+
+                self._connected = True
+                self._consecutive_errors = 0
+                LOGGER.info("[%s] Video file opened (%s, %.1f FPS)", self.camera_id, self.file_path, self._fps)
+
+                while not self._stop.is_set():
+                    loop_start = time.time()
+                    ret, frame = self._cap.read()
+                    if not ret:
+                        # EOF - loop back to start
+                        self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+
+                    self._total_frames += 1
+                    self._last_frame_time = time.time()
+
+                    # Publish to FrameStore
+                    try:
+                        self._frame_store.publish(
+                            self.camera_id, frame, quality=JPEG_QUALITY_STORE
+                        )
+                    except Exception:
+                        pass
+
+                    # Distribute to WebSocket subscribers
+                    try:
+                        import numpy as np
+                        arr = np.frombuffer(
+                            cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY_STREAM])[1].tobytes(),
+                            dtype=np.uint8
+                        )
+                        jpeg_bytes = arr.tobytes()
+                    except Exception:
+                        jpeg_bytes = None
+
+                    if jpeg_bytes:
+                        with self._sub_lock:
+                            dead = []
+                            for sub_id, put_fn in self._ws_subscribers.items():
+                                try:
+                                    put_fn(jpeg_bytes)
+                                except Exception:
+                                    dead.append(sub_id)
+                            for sid in dead:
+                                self._ws_subscribers.pop(sid, None)
+
+                    # FPS pacing
+                    elapsed = time.time() - loop_start
+                    sleep_time = frame_interval - elapsed
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+
+            except Exception as e:
+                LOGGER.exception("[%s] Video file error: %s", self.camera_id, e)
+            finally:
+                self._connected = False
+                if self._cap:
+                    try:
+                        self._cap.release()
+                    except Exception:
+                        pass
+                    self._cap = None
+
+            if self._stop.is_set():
+                break
+
+            self._consecutive_errors += 1
+            delay = min(
+                RECONNECT_BASE_DELAY * (2 ** min(self._consecutive_errors - 1, 4)),
+                RECONNECT_MAX_DELAY,
+            )
+            LOGGER.info("[%s] Video file reopening in %.1fs", self.camera_id, delay)
+            self._stop.wait(delay)
+
+
 class StreamManager:
     """Manages camera stream instances for all active cameras.
 
     CameraStream handles DVRIP cameras (direct binary protocol);
-    RtspCameraStream handles native RTSP cameras. Both feed FrameStore,
-    which detection workers and live-stream endpoints read from.
+    RtspCameraStream handles native RTSP cameras.
+    VideoFileCameraStream handles local video file playback.
+    All feed FrameStore, which detection workers and live-stream endpoints read from.
     """
 
     def __init__(self, frame_store: FrameStore) -> None:
         self._frame_store = frame_store
-        self._streams: dict[str, CameraStream | RtspCameraStream] = {}
+        self._streams: dict[str, CameraStream | RtspCameraStream | VideoFileCameraStream] = {}
         self._lock = threading.Lock()
 
     @property
@@ -684,6 +863,27 @@ class StreamManager:
             self._streams[camera_id] = stream
             stream.start()
 
+    def start_camera_video(
+        self,
+        camera_id: str,
+        file_path: str,
+    ) -> None:
+        """Start a video file stream for a camera."""
+        with self._lock:
+            if camera_id in self._streams:
+                existing = self._streams[camera_id]
+                if existing.is_running:
+                    return
+                existing.stop()
+
+            stream = VideoFileCameraStream(
+                camera_id=camera_id,
+                file_path=file_path,
+                frame_store=self._frame_store,
+            )
+            self._streams[camera_id] = stream
+            stream.start()
+
     def stop_camera(self, camera_id: str) -> None:
         """Stop a camera's stream."""
         with self._lock:
@@ -698,7 +898,7 @@ class StreamManager:
                 stream.stop()
             self._streams.clear()
 
-    def get_stream(self, camera_id: str) -> Optional[CameraStream | RtspCameraStream]:
+    def get_stream(self, camera_id: str) -> Optional[CameraStream | RtspCameraStream | VideoFileCameraStream]:
         """Get a camera's stream by ID."""
         with self._lock:
             return self._streams.get(camera_id)

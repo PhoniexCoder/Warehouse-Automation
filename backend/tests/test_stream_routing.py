@@ -10,7 +10,7 @@ from server import _parse_dvrip_url, _route_camera
 
 @pytest.fixture
 def fake_stream_manager(monkeypatch):
-    calls = {"dvrip": [], "rtsp": []}
+    calls = {"dvrip": [], "rtsp": [], "video": []}
 
     class FakeStreamManager:
         def start_camera(self, **kwargs):
@@ -18,6 +18,9 @@ def fake_stream_manager(monkeypatch):
 
         def start_camera_rtsp(self, **kwargs):
             calls["rtsp"].append(kwargs)
+
+        def start_camera_video(self, **kwargs):
+            calls["video"].append(kwargs)
 
     import server
     monkeypatch.setattr(server, "stream_manager", FakeStreamManager())
@@ -89,3 +92,84 @@ def test_route_empty_url_skipped(fake_stream_manager):
     assert ok is False
     assert fake_stream_manager["dvrip"] == []
     assert fake_stream_manager["rtsp"] == []
+
+
+def test_route_file_url_absolute_path(fake_stream_manager, tmp_path):
+    import server
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"\x00" * 16)
+
+    ok = _route_camera("cam-6", f"file://{video.as_posix()}")
+    assert ok is True
+    assert fake_stream_manager["video"] == [{
+        "camera_id": "cam-6",
+        "file_path": video.as_posix(),
+    }]
+    assert fake_stream_manager["dvrip"] == []
+    assert fake_stream_manager["rtsp"] == []
+
+
+def test_route_mp4_relative_to_media_dir(fake_stream_manager, tmp_path, monkeypatch):
+    import server
+
+    video = tmp_path / "warehouse_normal.mp4"
+    video.write_bytes(b"\x00" * 16)
+    monkeypatch.setattr(server, "MEDIA_DIR", tmp_path.as_posix())
+
+    ok = _route_camera("cam-7", "warehouse_normal.mp4")
+    assert ok is True
+    assert len(fake_stream_manager["video"]) == 1
+    call = fake_stream_manager["video"][0]
+    assert call["camera_id"] == "cam-7"
+    assert os.path.normpath(call["file_path"]) == os.path.normpath(str(video))
+
+
+def test_route_mp4_case_insensitive(fake_stream_manager, tmp_path, monkeypatch):
+    import server
+
+    video = tmp_path / "WAREHOUSE_NORMAL.MP4"
+    video.write_bytes(b"\x00" * 16)
+    monkeypatch.setattr(server, "MEDIA_DIR", tmp_path.as_posix())
+
+    ok = _route_camera("cam-8", "WAREHOUSE_NORMAL.MP4")
+    assert ok is True
+    assert len(fake_stream_manager["video"]) == 1
+    call = fake_stream_manager["video"][0]
+    assert call["camera_id"] == "cam-8"
+    assert os.path.normpath(call["file_path"]) == os.path.normpath(str(video))
+
+
+def test_route_file_url_without_media_dir_prefix(fake_stream_manager, tmp_path, monkeypatch):
+    import server
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"\x00" * 16)
+    monkeypatch.setattr(server, "MEDIA_DIR", tmp_path.as_posix())
+
+    ok = _route_camera("cam-9", "file://clip.mp4")
+    assert ok is True
+    assert len(fake_stream_manager["video"]) == 1
+    call = fake_stream_manager["video"][0]
+    assert call["camera_id"] == "cam-9"
+    assert os.path.normpath(call["file_path"]) == os.path.normpath(str(video))
+
+
+def test_route_video_file_missing_skipped(fake_stream_manager, tmp_path, monkeypatch):
+    import server
+
+    monkeypatch.setattr(server, "MEDIA_DIR", tmp_path.as_posix())
+
+    ok = _route_camera("cam-10", "nope.mp4")
+    assert ok is False
+    assert fake_stream_manager["video"] == []
+
+
+def test_route_mp4_extension_not_file_scheme(fake_stream_manager, tmp_path, monkeypatch):
+    import server
+
+    monkeypatch.setattr(server, "MEDIA_DIR", tmp_path.as_posix())
+
+    ok = _route_camera("cam-11", "script.mp4?token=x")
+    assert ok is False
+    assert fake_stream_manager["video"] == []

@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import multiprocessing
+import os
 import re
 import sys
 
@@ -66,6 +67,7 @@ import threading
 import time
 
 BUSINESS_BACKEND_URL = os.getenv("BUSINESS_BACKEND_URL", "http://localhost:8001")
+MEDIA_DIR = os.getenv("MEDIA_DIR", "/app/media")
 
 _DVRIP_URL_RE = re.compile(r"^dvrip://([^:]+):([^@]+)@([^:]+):(\d+)/(\d+)$")
 _RTSP_URL_RE = re.compile(r"^rtsp://")
@@ -99,8 +101,10 @@ def _parse_dvrip_url(url: str) -> dict | None:
 def _route_camera(cam_id: str, stream_url: str) -> bool:
     """Start the correct stream for a camera URL.
 
-    dvrip:// URLs connect directly via DVRIP (CameraStream); native RTSP
-    URLs are read directly (RtspCameraStream). go2rtc is not involved.
+    dvrip:// URLs connect directly via DVRIP (CameraStream);
+    native RTSP URLs are read directly (RtspCameraStream).
+    file:// URLs and .mp4 files play local video (VideoFileCameraStream).
+    go2rtc is not involved.
     Returns True if a stream was started.
     """
     if stream_url.startswith("dvrip://"):
@@ -120,6 +124,21 @@ def _route_camera(cam_id: str, stream_url: str) -> bool:
 
     if stream_url.startswith("rtsp://"):
         stream_manager.start_camera_rtsp(camera_id=cam_id, rtsp_url=stream_url)
+        return True
+
+    # Local video file: file:///path/to/file.mp4 or bare filename.mp4
+    if stream_url.startswith("file://") or stream_url.lower().endswith(".mp4"):
+        # Strip file:// prefix
+        file_name = stream_url[7:] if stream_url.startswith("file://") else stream_url
+        # Resolve path: absolute paths used as-is; relative paths joined with MEDIA_DIR
+        if os.path.isabs(file_name):
+            file_path = file_name
+        else:
+            file_path = os.path.join(MEDIA_DIR, file_name)
+        if not os.path.exists(file_path):
+            LOGGER.warning("VMS: Video file not found for %s: %s", cam_id, file_path)
+            return False
+        stream_manager.start_camera_video(camera_id=cam_id, file_path=file_path)
         return True
 
     LOGGER.warning("VMS: Skipping camera %s with unsupported stream URL: %s", cam_id, stream_url)

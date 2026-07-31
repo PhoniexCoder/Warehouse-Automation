@@ -67,8 +67,10 @@ services:
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
       OPENCV_FFMPEG_CAPTURE_OPTIONS: "rtsp_transport;tcp"
+      MEDIA_DIR: "/app/media"
     volumes:
       - stream-cache:/app/backend/stream_cache
+      - ./frontend/public/cam_vid:/app/media:ro
     deploy:
       resources:
         reservations:
