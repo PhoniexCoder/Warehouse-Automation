@@ -740,16 +740,19 @@ class VideoFileCameraStream:
                     except Exception:
                         pass
 
-                    # Distribute to WebSocket subscribers
-                    try:
-                        import numpy as np
-                        arr = np.frombuffer(
-                            cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY_STREAM])[1].tobytes(),
-                            dtype=np.uint8
-                        )
-                        jpeg_bytes = arr.tobytes()
-                    except Exception:
-                        jpeg_bytes = None
+                    # Distribute to WebSocket subscribers (only encoded when someone
+                    # is subscribed — avoids a wasted imencode per frame)
+                    jpeg_bytes = None
+                    if self._ws_subscribers:
+                        try:
+                            import numpy as np
+                            arr = np.frombuffer(
+                                cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY_STREAM])[1].tobytes(),
+                                dtype=np.uint8
+                            )
+                            jpeg_bytes = arr.tobytes()
+                        except Exception:
+                            jpeg_bytes = None
 
                     if jpeg_bytes:
                         with self._sub_lock:

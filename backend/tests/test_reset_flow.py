@@ -133,10 +133,14 @@ def test_manager_reset_camera_without_manager_returns_false():
     assert m.reset_camera("cam_test") is False
 
 
-# ── detection_skip ───────────────────────────────────────────────────────
+# ── detection_skip / async detection ─────────────────────────────────────
 
-def _run_worker(w, min_reads: int = 10):
-    """Run the worker loop in a thread until the fake source read enough frames."""
+def _run_worker(w, duration: float = 1.0, process_fn=None):
+    """Run the worker loop in a thread for a fixed duration.
+
+    Returns (reads, detection_calls, publish_calls). Detection runs on the
+    background detection thread, so its count can lag behind reads.
+    """
     import queue
     import threading
     import time
@@ -157,46 +161,74 @@ def _run_worker(w, min_reads: int = 10):
 
     fake = FakeSource()
     w._frame_source = fake
-    w._publish_frame = lambda frame: None
     w._event_queue = queue.Queue()
     w._stop = threading.Event()
+
+    if process_fn is None:
+        process_fn = lambda frame, pre_dets: ([], [])
 
     det_calls = {"n": 0}
 
     def counting_process(frame, pre_dets):
         det_calls["n"] += 1
-        return [], [{"x1": 0, "y1": 0, "x2": 10, "y2": 10, "label": "x", "confidence": 0.9}]
+        return process_fn(frame, pre_dets)
 
     w._process_frame = counting_process
 
+    published = {"n": 0}
+
+    def counting_publish(frame):
+        published["n"] += 1
+
+    w._publish_frame = counting_publish
+
     thread = threading.Thread(target=w.run, daemon=True)
     thread.start()
-    deadline = time.time() + 5
-    while time.time() < deadline and fake.read_count < min_reads:
-        time.sleep(0.01)
+    time.sleep(duration)
     w._stop.set()
-    thread.join(timeout=3)
+    thread.join(timeout=5)
 
-    return fake.read_count, det_calls["n"]
+    return fake.read_count, det_calls["n"], published["n"]
 
 
 def test_detection_skip_throttles_detection_calls():
-    w = _make_worker(source_type="simulated", detection_skip=2, target_fps=1000)
+    w = _make_worker(source_type="simulated", detection_skip=2, target_fps=200)
     w._init_components = lambda: None
 
-    reads, dets = _run_worker(w)
+    reads, dets, published = _run_worker(w)
 
-    assert reads >= 10
-    assert dets >= 3
+    assert reads >= 50
+    assert published >= 50
+    assert dets >= 10
     assert dets < reads
-    assert dets * 2 >= reads - 1
+    assert dets * 2 >= reads - 2
 
 
 def test_detection_skip_default_runs_every_frame():
-    w = _make_worker(source_type="simulated", target_fps=1000)
+    w = _make_worker(source_type="simulated", target_fps=200)
     w._init_components = lambda: None
 
-    reads, dets = _run_worker(w)
+    reads, dets, published = _run_worker(w)
 
-    assert reads >= 10
-    assert dets == reads
+    assert reads >= 50
+    assert published >= 50
+    assert dets >= reads * 0.5
+
+
+def test_slow_detection_does_not_stall_publish():
+    """Regression: slow inference (e.g. GPU contention from many cameras) must
+    never freeze the annotated stream. Detection runs on a background thread,
+    so the publish loop keeps producing frames at target_fps."""
+    import time
+
+    w = _make_worker(source_type="simulated", detection_skip=1, target_fps=200)
+    w._init_components = lambda: None
+
+    def slow_process(frame, pre_dets):
+        time.sleep(0.3)
+        return [], [{"x1": 0, "y1": 0, "x2": 10, "y2": 10, "label": "x", "confidence": 0.9}]
+
+    reads, dets, published = _run_worker(w, duration=1.0, process_fn=slow_process)
+
+    assert dets <= 6
+    assert published >= 50

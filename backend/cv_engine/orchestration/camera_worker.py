@@ -1,5 +1,7 @@
 import logging
 import os
+import queue
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -48,9 +50,12 @@ class CameraWorker:
         self._target_fps = config.get("target_fps", _TARGET_FPS)
         self._frame_interval = 1.0 / max(self._target_fps, 1.0)
         self._detection_skip = max(1, int(config.get("detection_skip", 1)))
-        self._detection_frame = 0
         self._last_vis_boxes: list[dict] = []
         self._last_events: list[dict] = []
+        self._det_input: "queue.Queue[tuple[Any, Any]]" = queue.Queue(maxsize=1)
+        self._det_thread: Optional[threading.Thread] = None
+        self._det_lock = threading.Lock()
+        self._det_gen = 0
         self._consecutive_errors = 0
         self._frame_store = FrameStore()
         self._roi = config.get("roi")
@@ -85,9 +90,12 @@ class CameraWorker:
 
         self._report_health("starting")
 
+        self._start_detection_thread()
+
         frame_start = 0.0
         reconnect_delay = _RECONNECT_BASE_DELAY
         frame_count = 0
+        published_gen = 0
 
         try:
             while not self._stop.is_set():
@@ -132,25 +140,36 @@ class CameraWorker:
                     self._consecutive_errors = 0
                     frame_count += 1
 
-                    self._detection_frame += 1
-                    run_detection = (
-                        self._detection_skip <= 1
-                        or self._detection_frame % self._detection_skip == 0
-                    )
-                    if run_detection:
-                        events, vis_boxes = self._process_frame(frame, pre_dets)
-                        self._last_events = events
-                        self._last_vis_boxes = vis_boxes
-                    else:
-                        events, vis_boxes = self._last_events, self._last_vis_boxes
+                    # Hand the latest frame to the background detection thread.
+                    # Never block the publish loop: if the thread is still busy,
+                    # replace its pending input so it always detects the newest frame.
+                    try:
+                        self._det_input.put_nowait((frame, pre_dets))
+                    except queue.Full:
+                        try:
+                            self._det_input.get_nowait()
+                        except queue.Empty:
+                            pass
+                        try:
+                            self._det_input.put_nowait((frame, pre_dets))
+                        except queue.Full:
+                            pass
+
+                    with self._det_lock:
+                        events = self._last_events
+                        vis_boxes = self._last_vis_boxes
+                        det_gen = self._det_gen
+
+                    if det_gen != published_gen:
+                        published_gen = det_gen
+                        for event in events:
+                            self._event_queue.put(event)
 
                     try:
                         vis_frame = self._draw_overlays(frame, vis_boxes)
                         self._publish_frame(vis_frame)
                     except Exception:
                         LOGGER.exception("[%s] Frame publish failed", self.camera_id)
-                    for event in events:
-                        self._event_queue.put(event)
 
                     if frame_count % 30 == 0:
                         self._report_health("running", {
@@ -166,11 +185,6 @@ class CameraWorker:
                                     self._counter.total_count if self._counter else 0,
                                     self._line_counter.line_count if self._line_counter else 0,
                                     len(self._seen_tracks))
-
-                    if frame_count % 600 == 0 and self._seen_tracks:
-                        old = len(self._seen_tracks)
-                        self._seen_tracks.clear()
-                        LOGGER.info("[%s] Cleared _seen_tracks (%d -> 0)", self.camera_id, old)
 
                     elapsed = time.time() - frame_start
                     sleep_time = max(0.0, self._frame_interval - elapsed)
@@ -220,6 +234,46 @@ class CameraWorker:
         self._line_counter = LineCounter()
         self._duplicate_guard = DuplicateGuard()
         self._build_roi_mask()
+
+    def _start_detection_thread(self) -> None:
+        """Start the background inference thread.
+
+        Detection is decoupled from the publish loop so that slow inference
+        (e.g. under GPU/CPU contention from many cameras) can never stall the
+        annotated video stream. The loop always publishes at target_fps using
+        the latest available detection results; boxes simply update when ready.
+        """
+        self._det_thread = threading.Thread(
+            target=self._detection_loop,
+            daemon=True,
+            name=f"det-{self.camera_id}",
+        )
+        self._det_thread.start()
+        LOGGER.info("[%s] Detection thread started (skip=%d)", self.camera_id, self._detection_skip)
+
+    def _detection_loop(self) -> None:
+        """Consume the latest frame and run inference, publishing results under lock."""
+        det_frame = 0
+        while not self._stop.is_set():
+            try:
+                frame, pre_dets = self._det_input.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            det_frame += 1
+            if self._detection_skip > 1 and det_frame % self._detection_skip != 0:
+                continue
+            try:
+                events, vis_boxes = self._process_frame(frame, pre_dets)
+                with self._det_lock:
+                    self._last_events = events
+                    self._last_vis_boxes = vis_boxes
+                    self._det_gen += 1
+            except Exception:
+                LOGGER.exception("[%s] Detection error", self.camera_id)
+            if det_frame % 600 == 0 and self._seen_tracks:
+                old = len(self._seen_tracks)
+                self._seen_tracks.clear()
+                LOGGER.info("[%s] Cleared _seen_tracks (%d -> 0)", self.camera_id, old)
 
     def _init_detector(self) -> None:
         """Initialize YOLO detector if model_path is configured."""
@@ -531,4 +585,7 @@ class CameraWorker:
                 self._frame_source.close()
         except Exception:
             pass
+        if self._det_thread is not None:
+            self._det_thread.join(timeout=2)
+            self._det_thread = None
         self._report_health("stopped")
