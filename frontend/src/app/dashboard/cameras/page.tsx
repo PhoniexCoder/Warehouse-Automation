@@ -34,7 +34,7 @@ export default function CamerasPage() {
   const [cameraName, setCameraName] = useState("")
   const [streamUrl, setStreamUrl] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
-  const [cameraStatus, setCameraStatus] = useState("online")
+  const [cameraStatus, setCameraStatus] = useState("active")
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -238,7 +238,7 @@ export default function CamerasPage() {
     setCameraName("")
     setStreamUrl("")
     setWarehouseId(warehouses[0]?.id || "")
-    setCameraStatus("online")
+    setCameraStatus("active")
     setSelectedModel(null)
     setRoi(null)
     setRoiDrawing(false)
@@ -475,7 +475,7 @@ export default function CamerasPage() {
                 className="input-field w-auto"
               >
                 <option value="all">All Status</option>
-                <option value="online">Online</option>
+                <option value="active">Online</option>
                 <option value="offline">Offline</option>
               </select>
               {user?.role !== "operator" && (
@@ -771,7 +771,7 @@ export default function CamerasPage() {
                 onChange={(e) => setCameraStatus(e.target.value)}
                 className="input-field"
               >
-                <option value="online">Online</option>
+                <option value="active">Online</option>
                 <option value="offline">Offline</option>
               </select>
             </div>

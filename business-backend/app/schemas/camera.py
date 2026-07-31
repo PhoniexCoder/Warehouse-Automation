@@ -4,6 +4,8 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.models.camera import CameraStatus
+
 _ALLOWED_MODEL_RE = re.compile(r"^[a-zA-Z0-9_\-]+\.pt$")
 
 
@@ -26,7 +28,7 @@ class CameraCreate(BaseModel):
     warehouse_id: uuid.UUID
     camera_name: str = Field(..., min_length=1, max_length=255, examples=["Entry Gate Camera"])
     stream_url: str = Field(..., examples=["rtsp://192.168.1.100:554/stream1"])
-    status: str | None = None
+    status: CameraStatus | None = None
     model_path: str | None = None
     roi: dict | list | None = None
     count_line: dict | list | None = None
@@ -43,7 +45,7 @@ class CameraCreate(BaseModel):
 class CameraUpdate(BaseModel):
     camera_name: str | None = None
     stream_url: str | None = None
-    status: str | None = None
+    status: CameraStatus | None = None
     model_path: str | None = None
     roi: dict | list | None = None
     count_line: dict | list | None = None

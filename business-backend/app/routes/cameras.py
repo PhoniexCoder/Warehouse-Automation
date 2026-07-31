@@ -330,7 +330,7 @@ async def list_active_cameras_internal(
 ) -> ApiResponse:
     service = CameraService(session)
     cameras = await service.list_all()
-    active = [c for c in cameras if c.status == "active" or c.status == "online"]
+    active = [c for c in cameras if c.status == "active"]
     return ApiResponse(
         success=True,
         data=[CameraResponse.model_validate(c).model_dump(mode="json") for c in active],
